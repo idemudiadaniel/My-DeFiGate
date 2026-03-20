@@ -12,6 +12,10 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+if (!process.env.DATABASE_URL) {
+  console.warn("WARNING: DATABASE_URL is not set. User signup/signin uses in-memory fallback (non-persistent) for development.");
+}
+
 app.use(cors());
 app.use(bodyParser.json());
 

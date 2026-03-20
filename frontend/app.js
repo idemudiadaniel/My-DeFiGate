@@ -1,5 +1,5 @@
 // ===== CONFIG =====
-const API = window.location.origin;
+const API = new URLSearchParams(window.location.search).get("api") || window.location.origin;
 
 // ===== STATE =====
 let currentUser = null; // { id, email }
@@ -330,6 +330,34 @@ async function sendTokens() {
   }
 }
 
+// ===== BACKEND HEALTH CHECK =====
+async function checkBackendConnection() {
+  const dashBackendStatus = document.getElementById("dashBackendStatus");
+  if (!dashBackendStatus) return;
+
+  try {
+    const res = await fetch(`${API}/api/health`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await res.json();
+
+    if (res.ok && data.ok) {
+      dashBackendStatus.textContent = "Connected";
+      dashBackendStatus.style.color = "var(--success)";
+      toast("Backend connected", "success");
+    } else {
+      dashBackendStatus.textContent = "Offline";
+      dashBackendStatus.style.color = "var(--danger)";
+      toast("Backend health check failed", "error");
+    }
+  } catch (err) {
+    dashBackendStatus.textContent = "Offline";
+    dashBackendStatus.style.color = "var(--danger)";
+    toast("Backend unreachable", "error");
+  }
+}
+
 // ===== UI HELPERS =====
 function updateUI() {
   const badge = document.getElementById("userBadge");
@@ -338,6 +366,7 @@ function updateUI() {
   const dashWalletStatus = document.getElementById("dashWalletStatus");
   const dashWalletAddr = document.getElementById("dashWalletAddr");
   const dashChain = document.getElementById("dashChain");
+  const dashBackendStatus = document.getElementById("dashBackendStatus");
 
   if (currentUser) {
     badge.textContent = currentUser.email;
@@ -356,8 +385,19 @@ function updateUI() {
     dashWalletAddr.innerHTML = "&mdash;";
     dashChain.innerHTML = "&mdash;";
     document.getElementById("walletInfoCard").classList.add("hidden");
+    if (dashBackendStatus) {
+      dashBackendStatus.textContent = "Checking...";
+      dashBackendStatus.style.color = "var(--info)";
+    }
+    checkBackendConnection();
     return;
   }
+
+  if (dashBackendStatus) {
+    dashBackendStatus.textContent = "Checking...";
+    dashBackendStatus.style.color = "var(--info)";
+  }
+  checkBackendConnection();
 
   if (currentWallet) {
     dashWalletStatus.textContent = "Active";
