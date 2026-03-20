@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import pool from "../db.js";
+import { generateToken } from "../middleware/auth.js";
 
 const useInMemoryAuth = !process.env.DATABASE_URL;
 const inMemoryUsers = new Map();
@@ -31,8 +32,9 @@ export const signup = async (req, res) => {
     const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
     const user = { id, email: normalizedEmail, password_hash: hash };
     inMemoryUsers.set(normalizedEmail, user);
-
-    return res.json({ ok: true, user: { id, email: normalizedEmail } });
+    
+    const token = generateToken(user);
+    return res.json({ ok: true, user: { id, email: normalizedEmail }, token });
   }
 
   try {
@@ -45,7 +47,9 @@ export const signup = async (req, res) => {
       [normalizedEmail, hash]
     );
 
-    res.json({ ok: true, user: result.rows[0] });
+    const user = result.rows[0];
+    const token = generateToken(user);
+    res.json({ ok: true, user, token });
   } catch (err) {
     if (err.code === "23505") {
       return res.status(400).json({ ok: false, error: "Email already exists" });
@@ -74,7 +78,8 @@ export const signin = async (req, res) => {
       return res.status(401).json({ ok: false, error: "Invalid credentials" });
     }
 
-    return res.json({ ok: true, user: { id: user.id, email: user.email } });
+    const token = generateToken(user);
+    return res.json({ ok: true, user: { id: user.id, email: user.email }, token });
   }
 
   try {
@@ -94,12 +99,20 @@ export const signin = async (req, res) => {
       return res.status(401).json({ ok: false, error: "Invalid credentials" });
     }
 
+    const token = generateToken(user);
     res.json({
       ok: true,
       user: { id: user.id, email: user.email },
+      token,
     });
   } catch (err) {
     console.error("signin error", err);
     res.status(500).json({ ok: false, error: "Signin failed" });
   }
+};
+
+export const signout = async (req, res) => {
+  // Token-based auth is stateless. Client simply discards the token.
+  // For future token revocation, add a blacklist table and check against it in middleware.
+  res.json({ ok: true, message: "Signed out successfully" });
 };
