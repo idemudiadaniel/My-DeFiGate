@@ -1,0 +1,422 @@
+import pool from "../db.js";
+import bcrypt from "bcrypt";
+import crypto from "crypto";
+import dotenv from "dotenv";
+import { inMemoryUsers } from "./userController.js";
+dotenv.config();
+
+const useInMemoryAuth = !process.env.DATABASE_URL;
+const inMemoryTransfers = new Map();
+const inMemoryPINs = new Map(); // Temporary PIN storage: key format = "senderID:transferID"
+
+// Generate a 6-digit PIN
+function generatePIN() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// Lookup user by email or UID (email in this case since we use emails as identifiers)
+export const lookupRecipient = async (req, res) => {
+  const { identifier } = req.body;
+
+  if (!identifier) {
+    return res.status(400).json({ ok: false, error: "Identifier (email or UID) required" });
+  }
+
+  try {
+    let recipient;
+
+    if (useInMemoryAuth) {
+      // In-memory fallback - search for user in inMemoryUsers
+      if (identifier.includes("@")) {
+        // Search by email
+        const normalizedIdentifier = identifier.toLowerCase();
+        recipient = inMemoryUsers.get(normalizedIdentifier);
+      } else {
+        // Search by user ID
+        for (const [, user] of inMemoryUsers) {
+          if (user.id === identifier) {
+            recipient = user;
+            break;
+          }
+        }
+      }
+
+      if (!recipient) {
+        return res.status(404).json({ ok: false, error: "Recipient not found" });
+      }
+
+      return res.json({
+        ok: true,
+        data: {
+          id: recipient.id,
+          email: recipient.email,
+        },
+      });
+    }
+
+    // Database mode
+    let query;
+    let params;
+
+    if (identifier.includes("@")) {
+      query = `SELECT id, email FROM users WHERE email = $1 LIMIT 1`;
+      params = [identifier.toLowerCase()];
+    } else {
+      query = `SELECT id, email FROM users WHERE id = $1 LIMIT 1`;
+      params = [identifier];
+    }
+
+    const result = await pool.query(query, params);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Recipient not found" });
+    }
+
+    recipient = result.rows[0];
+    res.json({ ok: true, data: { id: recipient.id, email: recipient.email } });
+  } catch (err) {
+    console.error("lookupRecipient error", err);
+    res.status(500).json({ ok: false, error: "Lookup failed" });
+  }
+};
+
+// Initiate transfer - sender specifies recipient and amount
+export const initiateTransfer = async (req, res) => {
+  const senderId = req.user?.id;
+  const senderEmail = req.user?.email;
+  const { recipientId, amount, tokenSymbol, chain } = req.body;
+
+  if (!senderId || !senderEmail) {
+    return res.status(401).json({ ok: false, error: "Not authenticated" });
+  }
+
+  if (!recipientId || !amount || !tokenSymbol || !chain) {
+    return res.status(400).json({
+      ok: false,
+      error: "Missing required fields: recipientId, amount, tokenSymbol, chain",
+    });
+  }
+
+  if (senderId === recipientId) {
+    return res.status(400).json({ ok: false, error: "Cannot send to yourself" });
+  }
+
+  if (amount <= 0) {
+    return res.status(400).json({ ok: false, error: "Amount must be positive" });
+  }
+
+  try {
+    if (useInMemoryAuth) {
+      // In-memory mode
+      const transferId = crypto.randomUUID();
+      const pin = generatePIN();
+
+      const transfer = {
+        id: transferId,
+        sender_id: senderId,
+        sender_email: senderEmail,
+        recipient_id: recipientId,
+        amount: parseFloat(amount),
+        token_symbol: tokenSymbol,
+        chain,
+        status: "pending_confirmation",
+        created_at: new Date().toISOString(),
+      };
+
+      // Store transfer
+      inMemoryTransfers.set(transferId, transfer);
+
+      // Store PIN temporarily
+      inMemoryPINs.set(`${senderId}:${transferId}`, pin);
+
+      return res.json({
+        ok: true,
+        data: {
+          transferId,
+          status: "pending_confirmation",
+          message: `Transfer initiated. PIN has been sent to your registered email/phone.`,
+          pin, // In development, return PIN (remove in production)
+        },
+      });
+    }
+
+    // Database mode
+    const insertResult = await pool.query(
+      `INSERT INTO transfers (sender_id, recipient_id, amount, token_symbol, chain, status, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, sender_id, recipient_id, amount, token_symbol, chain, status, created_at`,
+      [
+        senderId,
+        recipientId,
+        amount,
+        tokenSymbol,
+        chain,
+        "pending_confirmation",
+        {
+          sender_email: senderEmail,
+          initiated_at: new Date().toISOString(),
+        },
+      ]
+    );
+
+    const transfer = insertResult.rows[0];
+    const pin = generatePIN();
+
+    // Store PIN temporarily (should use Redis in production)
+    inMemoryPINs.set(`${senderId}:${transfer.id}`, pin);
+
+    res.json({
+      ok: true,
+      data: {
+        transferId: transfer.id,
+        status: transfer.status,
+        message: `Transfer initiated. PIN has been sent to ${senderEmail}.`,
+        pin, // In development only
+      },
+    });
+  } catch (err) {
+    console.error("initiateTransfer error", err);
+    res.status(500).json({ ok: false, error: "Transfer initiation failed" });
+  }
+};
+
+// Confirm transfer with PIN and password
+export const confirmTransfer = async (req, res) => {
+  const senderId = req.user?.id;
+  const { transferId, pin, password } = req.body;
+
+  if (!senderId) {
+    return res.status(401).json({ ok: false, error: "Not authenticated" });
+  }
+
+  if (!transferId || !pin || !password) {
+    return res.status(400).json({
+      ok: false,
+      error: "Missing required fields: transferId, pin, password",
+    });
+  }
+
+  try {
+    if (useInMemoryAuth) {
+      // In-memory mode
+      const transfer = inMemoryTransfers.get(transferId);
+
+      if (!transfer) {
+        return res.status(404).json({ ok: false, error: "Transfer not found" });
+      }
+
+      if (transfer.sender_id !== senderId) {
+        return res.status(403).json({ ok: false, error: "Unauthorized" });
+      }
+
+      if (transfer.status !== "pending_confirmation") {
+        return res.status(400).json({ ok: false, error: "Transfer cannot be confirmed" });
+      }
+
+      // Verify PIN
+      const storedPin = inMemoryPINs.get(`${senderId}:${transferId}`);
+      if (storedPin !== pin) {
+        return res.status(400).json({ ok: false, error: "Invalid PIN" });
+      }
+
+      // Mark transfer as completed
+      transfer.status = "completed";
+      transfer.completed_at = new Date().toISOString();
+      inMemoryTransfers.set(transferId, transfer);
+
+      // Clear PIN
+      inMemoryPINs.delete(`${senderId}:${transferId}`);
+
+      return res.json({
+        ok: true,
+        data: {
+          transferId,
+          status: "completed",
+          message: "Transfer completed successfully",
+          transfer,
+        },
+      });
+    }
+
+    // Database mode
+    const transferResult = await pool.query(
+      `SELECT id, sender_id, recipient_id, amount, token_symbol, status FROM transfers WHERE id = $1`,
+      [transferId]
+    );
+
+    if (transferResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Transfer not found" });
+    }
+
+    const transfer = transferResult.rows[0];
+
+    if (transfer.sender_id !== senderId) {
+      return res.status(403).json({ ok: false, error: "Unauthorized" });
+    }
+
+    if (transfer.status !== "pending_confirmation") {
+      return res.status(400).json({ ok: false, error: "Transfer cannot be confirmed" });
+    }
+
+    // Verify PIN
+    const storedPin = inMemoryPINs.get(`${senderId}:${transferId}`);
+    if (storedPin !== pin) {
+      return res.status(400).json({ ok: false, error: "Invalid PIN" });
+    }
+
+    // Verify password
+    const senderResult = await pool.query(
+      `SELECT password_hash FROM users WHERE id = $1`,
+      [senderId]
+    );
+
+    if (senderResult.rows.length === 0) {
+      return res.status(401).json({ ok: false, error: "Sender not found" });
+    }
+
+    const sender = senderResult.rows[0];
+    const validPassword = await bcrypt.compare(password, sender.password_hash);
+
+    if (!validPassword) {
+      return res.status(401).json({ ok: false, error: "Invalid password" });
+    }
+
+    // Update transfer status
+    const updatedResult = await pool.query(
+      `UPDATE transfers SET status = $1, completed_at = NOW() WHERE id = $2
+       RETURNING id, sender_id, recipient_id, amount, token_symbol, chain, status, completed_at`,
+      ["completed", transferId]
+    );
+
+    const completedTransfer = updatedResult.rows[0];
+
+    // Clear PIN
+    inMemoryPINs.delete(`${senderId}:${transferId}`);
+
+    res.json({
+      ok: true,
+      data: {
+        transferId: completedTransfer.id,
+        status: completedTransfer.status,
+        message: "Transfer completed successfully",
+        transfer: completedTransfer,
+      },
+    });
+  } catch (err) {
+    console.error("confirmTransfer error", err);
+    res.status(500).json({ ok: false, error: "Transfer confirmation failed" });
+  }
+};
+
+// Get transfer history for a user
+export const getTransferHistory = async (req, res) => {
+  const userId = req.user?.id;
+
+  if (!userId) {
+    return res.status(401).json({ ok: false, error: "Not authenticated" });
+  }
+
+  try {
+    if (useInMemoryAuth) {
+      // In-memory mode - filter transfers
+      const transfers = Array.from(inMemoryTransfers.values()).filter(
+        (t) => t.sender_id === userId || t.recipient_id === userId
+      );
+
+      return res.json({
+        ok: true,
+        data: {
+          sent: transfers.filter((t) => t.sender_id === userId),
+          received: transfers.filter((t) => t.recipient_id === userId),
+        },
+      });
+    }
+
+    // Database mode
+    const result = await pool.query(
+      `SELECT 
+        t.id, 
+        t.sender_id, 
+        t.recipient_id, 
+        t.amount, 
+        t.token_symbol, 
+        t.chain, 
+        t.status, 
+        t.created_at, 
+        t.completed_at,
+        s.email as sender_email,
+        r.email as recipient_email
+       FROM transfers t
+       LEFT JOIN users s ON t.sender_id = s.id
+       LEFT JOIN users r ON t.recipient_id = r.id
+       WHERE t.sender_id = $1 OR t.recipient_id = $1
+       ORDER BY t.created_at DESC
+       LIMIT 100`,
+      [userId]
+    );
+
+    const sent = result.rows.filter((t) => t.sender_id === userId);
+    const received = result.rows.filter((t) => t.recipient_id === userId);
+
+    res.json({
+      ok: true,
+      data: {
+        sent,
+        received,
+        total: sent.length + received.length,
+      },
+    });
+  } catch (err) {
+    console.error("getTransferHistory error", err);
+    res.status(500).json({ ok: false, error: "Failed to retrieve history" });
+  }
+};
+
+// Get pending transfers for a recipient
+export const getPendingTransfers = async (req, res) => {
+  const userId = req.user?.id;
+
+  if (!userId) {
+    return res.status(401).json({ ok: false, error: "Not authenticated" });
+  }
+
+  try {
+    if (useInMemoryAuth) {
+      // In-memory mode
+      const transfers = Array.from(inMemoryTransfers.values()).filter(
+        (t) => t.recipient_id === userId && t.status === "pending_confirmation"
+      );
+
+      return res.json({
+        ok: true,
+        data: transfers,
+      });
+    }
+
+    // Database mode
+    const result = await pool.query(
+      `SELECT 
+        t.id, 
+        t.sender_id, 
+        t.amount, 
+        t.token_symbol, 
+        t.chain, 
+        t.status, 
+        t.created_at,
+        s.email as sender_email
+       FROM transfers t
+       LEFT JOIN users s ON t.sender_id = s.id
+       WHERE t.recipient_id = $1 AND t.status != 'completed'
+       ORDER BY t.created_at DESC`,
+      [userId]
+    );
+
+    res.json({
+      ok: true,
+      data: result.rows,
+    });
+  } catch (err) {
+    console.error("getPendingTransfers error", err);
+    res.status(500).json({ ok: false, error: "Failed to retrieve pending transfers" });
+  }
+};

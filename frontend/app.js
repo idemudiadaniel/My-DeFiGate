@@ -22,6 +22,11 @@ function navigateTo(viewName) {
   const link = document.querySelector(`.nav-link[data-view="${viewName}"]`);
   if (view) view.classList.add("active");
   if (link) link.classList.add("active");
+
+  // Load transfer history when navigating to transfer view
+  if (viewName === "transfer" && currentUser) {
+    loadTransferHistory();
+  }
 }
 
 // ===== TABS =====
@@ -40,6 +45,7 @@ function toggleAuth() {
     // Sign out
     currentUser = null;
     currentWallet = null;
+    localStorage.removeItem("authToken");
     updateUI();
     toast("Signed out", "info");
     return;
@@ -81,7 +87,14 @@ async function handleAuth(e) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    const data = await res.json();
+
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      throw new Error(`Expected JSON response from ${endpoint}, got HTML or text: ${text.slice(0, 250)}`);
+    }
 
     if (!data.ok) {
       toast(data.error || "Auth failed", "error");
@@ -89,9 +102,17 @@ async function handleAuth(e) {
     }
 
     currentUser = data.user;
+    if (data.wallet) {
+      currentWallet = data.wallet;
+    }
     closeModal();
     updateUI();
     toast(`Welcome${authMode === "signup" ? "! Account created" : " back"}, ${currentUser.email}`, "success");
+
+    // Store token for future requests
+    if (data.token) {
+      localStorage.setItem("authToken", data.token);
+    }
   } catch (err) {
     toast(err.message, "error");
   } finally {
@@ -117,9 +138,14 @@ async function createWallet() {
   showResult(resultBox, null);
 
   try {
+    const headers = { "Content-Type": "application/json" };
+    if (currentUser && localStorage.getItem("authToken")) {
+      headers["Authorization"] = `Bearer ${localStorage.getItem("authToken")}`;
+    }
+
     const res = await fetch(`${API}/wallet/create`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         userId: currentUser.id,
         email: currentUser.email,
@@ -180,9 +206,14 @@ async function createOnramp() {
   showResult(resultBox, null);
 
   try {
+    const headers = { "Content-Type": "application/json" };
+    if (currentUser && localStorage.getItem("authToken")) {
+      headers["Authorization"] = `Bearer ${localStorage.getItem("authToken")}`;
+    }
+
     const res = await fetch(`${API}/mento/create-ramp`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         userId: currentUser.id,
         amountNGN: amount,
@@ -237,9 +268,14 @@ async function createOfframp() {
   showResult(resultBox, null);
 
   try {
+    const headers = { "Content-Type": "application/json" };
+    if (currentUser && localStorage.getItem("authToken")) {
+      headers["Authorization"] = `Bearer ${localStorage.getItem("authToken")}`;
+    }
+
     const res = await fetch(`${API}/mento/offramp`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         userId: currentUser.id,
         amount,
@@ -300,9 +336,14 @@ async function sendTokens() {
   showResult(resultBox, null);
 
   try {
+    const headers = { "Content-Type": "application/json" };
+    if (currentUser && localStorage.getItem("authToken")) {
+      headers["Authorization"] = `Bearer ${localStorage.getItem("authToken")}`;
+    }
+
     const res = await fetch(`${API}/wallet/send`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         walletId: currentWallet.id,
         toAddress,
@@ -358,6 +399,45 @@ async function checkBackendConnection() {
   }
 }
 
+// ===== CHECK AUTH ON LOAD =====
+async function checkAuthOnLoad() {
+  const token = localStorage.getItem("authToken");
+  if (!token) return;
+
+  try {
+    const res = await fetch(`${API}/user/me`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+    });
+
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      console.error("Failed to parse /user/me response:", text);
+      return;
+    }
+
+    if (data.ok) {
+      currentUser = data.user;
+      if (data.wallet) {
+        currentWallet = data.wallet;
+      }
+      updateUI();
+    } else {
+      // Token invalid, remove it
+      localStorage.removeItem("authToken");
+    }
+  } catch (err) {
+    console.error("checkAuthOnLoad error:", err);
+    localStorage.removeItem("authToken");
+  }
+}
+
 // ===== UI HELPERS =====
 function updateUI() {
   const badge = document.getElementById("userBadge");
@@ -400,13 +480,21 @@ function updateUI() {
   checkBackendConnection();
 
   if (currentWallet) {
-    dashWalletStatus.textContent = "Active";
-    dashWalletStatus.style.color = "var(--success)";
-    dashWalletAddr.textContent = currentWallet.address || "—";
-    dashChain.textContent = currentWallet.chain_type || "—";
+    if (currentWallet.status === "connected") {
+      dashWalletStatus.textContent = "Wallet connected";
+      dashWalletStatus.style.color = "var(--success)";
+    } else if (currentWallet.status === "disconnected") {
+      dashWalletStatus.textContent = "Wallet disconnected";
+      dashWalletStatus.style.color = "var(--warning)";
+    } else {
+      dashWalletStatus.textContent = "Wallet pending";
+      dashWalletStatus.style.color = "var(--info)";
+    }
+    dashWalletAddr.textContent = currentWallet.address || currentWallet.provider_wallet_id || "—";
+    dashChain.textContent = currentWallet.chain || currentWallet.chain_type || "—";
   } else {
-    dashWalletStatus.textContent = "No Wallet";
-    dashWalletStatus.style.color = "";
+    dashWalletStatus.textContent = "No wallet connected";
+    dashWalletStatus.style.color = "var(--muted)";
     dashWalletAddr.innerHTML = "&mdash;";
     dashChain.innerHTML = "&mdash;";
   }
@@ -436,5 +524,244 @@ function toast(message, type) {
   }, 3500);
 }
 
+// ===== PEER-TO-PEER TRANSFER =====
+let selectedRecipient = null;
+let pendingTransferId = null;
+
+async function lookupRecipient() {
+  const identifier = document.getElementById("recipientIdentifier").value;
+  const btn = document.getElementById("lookupBtn");
+
+  if (!identifier) {
+    toast("Enter recipient email or UID", "error");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Searching...";
+
+  try {
+    const res = await fetch(`${API}/transfer/lookup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifier }),
+    });
+
+    const data = await res.json();
+
+    if (!data.ok) {
+      toast(data.error || "Recipient not found", "error");
+      return;
+    }
+
+    selectedRecipient = data.data;
+    document.getElementById("recipientName").textContent = selectedRecipient.email;
+    document.getElementById("recipientEmail").textContent = selectedRecipient.email;
+    document.getElementById("recipientInfo").classList.remove("hidden");
+    toast("Recipient found!", "success");
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Lookup";
+  }
+}
+
+async function initiateTransfer() {
+  if (!currentUser) {
+    toast("Please sign in first", "error");
+    toggleAuth();
+    return;
+  }
+
+  if (!selectedRecipient) {
+    toast("Please lookup a recipient first", "error");
+    return;
+  }
+
+  const amount = parseFloat(document.getElementById("transferAmount").value);
+  const tokenSymbol = document.getElementById("transferToken").value;
+  const chain = document.getElementById("transferChain").value;
+  const btn = document.getElementById("initiateBtn");
+
+  if (!amount || amount <= 0) {
+    toast("Enter a valid amount", "error");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Initiating...";
+
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (localStorage.getItem("authToken")) {
+      headers["Authorization"] = `Bearer ${localStorage.getItem("authToken")}`;
+    }
+
+    const res = await fetch(`${API}/transfer/initiate`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        recipientId: selectedRecipient.id,
+        amount,
+        tokenSymbol,
+        chain,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!data.ok) {
+      toast(data.error || "Transfer initiation failed", "error");
+      return;
+    }
+
+    pendingTransferId = data.data.transferId;
+    document.getElementById("initiateResult").textContent = `Transfer initiated! PIN: ${data.data.pin}`;
+    document.getElementById("initiateResult").classList.remove("hidden");
+    document.getElementById("confirmSection").classList.remove("hidden");
+    toast("Transfer initiated. Enter PIN to confirm.", "success");
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Initiate Transfer";
+  }
+}
+
+async function confirmTransfer() {
+  if (!pendingTransferId) {
+    toast("No pending transfer", "error");
+    return;
+  }
+
+  const pin = document.getElementById("confirmPIN").value;
+  const password = document.getElementById("confirmPassword").value;
+  const btn = document.getElementById("confirmBtn");
+
+  if (!pin || !password) {
+    toast("Enter PIN and password", "error");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Confirming...";
+
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (localStorage.getItem("authToken")) {
+      headers["Authorization"] = `Bearer ${localStorage.getItem("authToken")}`;
+    }
+
+    const res = await fetch(`${API}/transfer/confirm`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        transferId: pendingTransferId,
+        pin,
+        password,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!data.ok) {
+      toast(data.error || "Confirmation failed", "error");
+      return;
+    }
+
+    document.getElementById("confirmResult").textContent = "Transfer completed successfully!";
+    document.getElementById("confirmResult").classList.remove("hidden");
+    toast("Transfer completed!", "success");
+
+    // Reset form
+    setTimeout(() => {
+      document.getElementById("confirmSection").classList.add("hidden");
+      document.getElementById("recipientInfo").classList.add("hidden");
+      document.getElementById("recipientIdentifier").value = "";
+      document.getElementById("transferAmount").value = "";
+      document.getElementById("confirmPIN").value = "";
+      document.getElementById("confirmPassword").value = "";
+      selectedRecipient = null;
+      pendingTransferId = null;
+      loadTransferHistory();
+    }, 2000);
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Confirm Transfer";
+  }
+}
+
+function switchTransferTab(btn, tabName) {
+  document.querySelectorAll("#view-transfer .tab").forEach((t) => t.classList.remove("active"));
+  document.querySelectorAll("#view-transfer .tab-content").forEach((c) => c.classList.remove("active"));
+  btn.classList.add("active");
+  document.getElementById(`tab-${tabName}`).classList.add("active");
+}
+
+async function loadTransferHistory() {
+  if (!currentUser) return;
+
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (localStorage.getItem("authToken")) {
+      headers["Authorization"] = `Bearer ${localStorage.getItem("authToken")}`;
+    }
+
+    const res = await fetch(`${API}/transfer/history`, {
+      method: "GET",
+      headers,
+    });
+
+    const data = await res.json();
+
+    if (!data.ok) {
+      console.error("Failed to load transfer history");
+      return;
+    }
+
+    // Populate sent transfers
+    const sentBody = document.getElementById("sentBody");
+    sentBody.innerHTML = "";
+    if (data.data.sent && data.data.sent.length > 0) {
+      data.data.sent.forEach((t) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td style="padding: 10px;">${t.recipient_email || t.recipient_id}</td>
+          <td style="padding: 10px;">${t.amount} ${t.token_symbol}</td>
+          <td style="padding: 10px;"><span style="background: ${t.status === 'completed' ? '#4CAF50' : '#FFC107'}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">${t.status}</span></td>
+          <td style="padding: 10px;">${new Date(t.created_at).toLocaleDateString()}</td>
+        `;
+        sentBody.appendChild(row);
+      });
+    } else {
+      sentBody.innerHTML = "<tr><td style=\"padding: 10px; text-align: center; color: #999;\" colspan=\"4\">No transfers sent yet</td></tr>";
+    }
+
+    // Populate received transfers
+    const receivedBody = document.getElementById("receivedBody");
+    receivedBody.innerHTML = "";
+    if (data.data.received && data.data.received.length > 0) {
+      data.data.received.forEach((t) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td style="padding: 10px;">${t.sender_email || t.sender_id}</td>
+          <td style="padding: 10px;">${t.amount} ${t.token_symbol}</td>
+          <td style="padding: 10px;"><span style="background: ${t.status === 'completed' ? '#4CAF50' : '#FFC107'}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">${t.status}</span></td>
+          <td style="padding: 10px;">${new Date(t.created_at).toLocaleDateString()}</td>
+        `;
+        receivedBody.appendChild(row);
+      });
+    } else {
+      receivedBody.innerHTML = "<tr><td style=\"padding: 10px; text-align: center; color: #999;\" colspan=\"4\">No transfers received yet</td></tr>";
+    }
+  } catch (err) {
+    console.error("Error loading history:", err);
+  }
+}
+
 // Init
 updateUI();
+checkAuthOnLoad();

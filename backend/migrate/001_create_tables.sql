@@ -49,3 +49,24 @@ CREATE TABLE IF NOT EXISTS crypto_jobs (
   tx_hash TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS transfers (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount NUMERIC(36,18) NOT NULL,
+  token_symbol VARCHAR(20) NOT NULL,
+  chain VARCHAR(50) NOT NULL,
+  status TEXT DEFAULT 'pending',
+  tx_hash TEXT,
+  wallet_id UUID REFERENCES wallets(id),
+  metadata JSONB,
+  created_at TIMESTAMP DEFAULT NOW(),
+  completed_at TIMESTAMP,
+  PRIMARY KEY (id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_transfers_sender_id ON transfers(sender_id);
+CREATE INDEX IF NOT EXISTS idx_transfers_recipient_id ON transfers(recipient_id);
+CREATE INDEX IF NOT EXISTS idx_transfers_status ON transfers(status);
+CREATE INDEX IF NOT EXISTS idx_transfers_created_at ON transfers(created_at DESC);

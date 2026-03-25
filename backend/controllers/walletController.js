@@ -1,10 +1,15 @@
 import axios from "axios";
 import dotenv from "dotenv";
+import pool from "../db.js";
 dotenv.config();
 
 const PRIVY_APP_ID = process.env.PRIVY_APP_ID;
 const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET;
 const PRIVY_BASE = "https://api.privy.io";
+
+const inMemoryWallets = new Map();
+
+const isPrivyEnabled = Boolean(PRIVY_APP_ID && PRIVY_APP_SECRET);
 
 // Privy uses Basic Auth: base64(appId:appSecret)
 function privyHeaders() {
@@ -18,25 +23,170 @@ function privyHeaders() {
   };
 }
 
+async function createPrivyWallet(chainType = "ethereum") {
+  if (!isPrivyEnabled) {
+    throw new Error("Privy credentials not configured");
+  }
+
+  // Map unsupported chains to supported ones
+  const privyChainType = chainType === "celo" ? "ethereum" : chainType;
+
+  const body = { chain_type: privyChainType };
+  const r = await axios.post(`${PRIVY_BASE}/v1/wallets`, body, {
+    headers: privyHeaders(),
+  });
+  return r.data;
+}
+
+async function getWalletByUserIdAndChain(userId, chainType) {
+  const result = await pool.query(
+    `SELECT id, user_id, provider, provider_wallet_id, address, chain, created_at
+     FROM wallets WHERE user_id = $1 AND chain = $2 LIMIT 1`,
+    [userId, chainType]
+  );
+  return result.rows[0] || null;
+}
+
+async function saveWallet(userId, privyWallet, chainType = "ethereum") {
+  const providerWalletId = privyWallet.id || null;
+  const address =
+    (privyWallet.accounts && privyWallet.accounts[0]?.address) ||
+    privyWallet.address ||
+    null;
+
+  const insert = await pool.query(
+    `INSERT INTO wallets (user_id, provider, provider_wallet_id, address, chain)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id, user_id, provider, provider_wallet_id, address, chain, created_at`,
+    [userId, "privy", providerWalletId, address, chainType]
+  );
+
+  // update user record for easier query
+  await pool.query(
+    `UPDATE users SET privy_wallet_id = $1, updated_at = NOW() WHERE id = $2`,
+    [providerWalletId, userId]
+  );
+
+  return insert.rows[0];
+}
+
+export async function ensureUserWallet(userId, email, chainType = "ethereum") {
+  if (!userId || !email) {
+    throw new Error("Missing user ID or email for wallet creation");
+  }
+
+  const key = `${userId}:${chainType}`;
+
+  if (!process.env.DATABASE_URL) {
+    // in-memory fallback, one wallet per user per chain
+    if (inMemoryWallets.has(key)) {
+      return inMemoryWallets.get(key);
+    }
+
+    if (!isPrivyEnabled) {
+      const wallet = {
+        id: key,
+        provider: "local",
+        provider_wallet_id: null,
+        address: null,
+        chain: chainType,
+        status: "disconnected",
+        created_at: new Date().toISOString(),
+      };
+      inMemoryWallets.set(key, wallet);
+      return wallet;
+    }
+
+    // For different chains, we'll create separate wallet records but may reuse Privy wallet
+    // For simplicity, let's create a new Privy wallet for each chain request
+    try {
+      const privyWallet = await createPrivyWallet(chainType);
+      const wallet = {
+        id: `${privyWallet.id}_${chainType}`, // Make ID unique per chain
+        provider: "privy",
+        provider_wallet_id: privyWallet.id,
+        address: privyWallet.accounts?.[0]?.address || privyWallet.address || null,
+        chain: chainType,
+        status: "connected",
+        created_at: new Date().toISOString(),
+        metadata: privyWallet,
+      };
+      inMemoryWallets.set(key, wallet);
+      return wallet;
+    } catch (err) {
+      console.error("ensureUserWallet privy error", err?.response?.data || err?.message || err);
+      const wallet = {
+        id: key,
+        provider: "local",
+        provider_wallet_id: null,
+        address: null,
+        chain: chainType,
+        status: "disconnected",
+        created_at: new Date().toISOString(),
+        error: err?.response?.data || err?.message,
+      };
+      inMemoryWallets.set(key, wallet);
+      return wallet;
+    }
+  }
+
+  const existing = await getWalletByUserIdAndChain(userId, chainType);
+  if (existing) {
+    return { ...existing, status: "connected" };
+  }
+
+  if (!isPrivyEnabled) {
+    const wallet = {
+      id: key,
+      user_id: userId,
+      provider: "local",
+      provider_wallet_id: null,
+      address: null,
+      chain: chainType,
+      status: "disconnected",
+      created_at: new Date().toISOString(),
+    };
+    // do not persist when no DB wallet endpoint expected
+    return wallet;
+  }
+
+  try {
+    const privyWallet = await createPrivyWallet(chainType);
+    const wallet = await saveWallet(userId, privyWallet, chainType);
+    return { ...wallet, status: "connected", metadata: privyWallet };
+  } catch (err) {
+    console.error("ensureUserWallet privy error", err?.response?.data || err?.message || err);
+    return {
+      id: key,
+      user_id: userId,
+      provider: "local",
+      provider_wallet_id: null,
+      address: null,
+      chain: chainType,
+      status: "disconnected",
+      created_at: new Date().toISOString(),
+      error: err?.response?.data || err?.message,
+    };
+  }
+}
+
 // POST /wallet/create — create a server-side wallet via Privy
 export const createEmbeddedWallet = async (req, res) => {
-  const { userId, email, chainType = "ethereum" } = req.body;
+  const userId = req.user?.id || req.body.userId;
+  const email = req.user?.email || req.body.email;
+  const chainType = req.body.chainType || "ethereum";
+  if (!userId || !email) {
+    return res.status(400).json({ ok: false, error: "Missing userId or email" });
+  }
+
   try {
-    const body = { chain_type: chainType };
-
-    const r = await axios.post(`${PRIVY_BASE}/v1/wallets`, body, {
-      headers: privyHeaders(),
-    });
-
-    return res.json({ ok: true, data: r.data });
+    const wallet = await ensureUserWallet(userId, email, chainType);
+    return res.json({ ok: true, data: wallet });
   } catch (err) {
-    console.error(
-      "privy create wallet error",
-      err?.response?.data || err.message
-    );
+    console.error("wallet creation error", err?.message || err);
     return res
       .status(err?.response?.status || 500)
-      .json({ ok: false, error: err?.response?.data || err.message });
+      .json({ ok: false, error: err?.response?.data || err?.message });
   }
 };
 

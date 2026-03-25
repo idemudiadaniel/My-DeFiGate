@@ -26,12 +26,14 @@ app.use(express.static(path.join(__dirname, "../frontend")));
 import rampRoutes from "./routes/ramp.js";
 import walletRoutes from "./routes/wallet.js";
 import userRoutes from "./routes/user.js";
+import transferRoutes from "./routes/transfer.js";
 
 // Mount under /mento for backward compat and /ramp for new routes
 app.use("/mento", rampRoutes);
 app.use("/ramp", rampRoutes);
 app.use("/wallet", walletRoutes);
 app.use("/user", userRoutes);
+app.use("/transfer", transferRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {

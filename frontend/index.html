@@ -22,6 +22,7 @@
         <a href="#" class="nav-link active" data-view="dashboard">Dashboard</a>
         <a href="#" class="nav-link" data-view="wallet">Wallet</a>
         <a href="#" class="nav-link" data-view="ramp">On/Off Ramp</a>
+        <a href="#" class="nav-link" data-view="transfer">Transfer</a>
         <a href="#" class="nav-link" data-view="send">Send</a>
       </div>
       <div class="nav-right">
@@ -116,6 +117,7 @@
               <label for="walletChain">Chain</label>
               <select id="walletChain">
                 <option value="ethereum">Ethereum</option>
+                <option value="celo">Celo</option>
                 <option value="solana">Solana</option>
               </select>
             </div>
@@ -197,6 +199,114 @@
             </div>
             <button class="btn btn-primary" onclick="createOfframp()" id="offrampBtn">Withdraw</button>
             <div id="offrampResult" class="result-box hidden"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Transfer View -->
+      <section id="view-transfer" class="view">
+        <div class="page-header">
+          <h1>Send to User</h1>
+          <p class="subtitle">Transfer tokens to another DeFiGate user</p>
+        </div>
+
+        <!-- Initiate Transfer Section -->
+        <div class="card">
+          <h2>Initiate Transfer</h2>
+          <div class="form-group">
+            <label for="recipientIdentifier">Recipient Email or UID</label>
+            <input type="text" id="recipientIdentifier" placeholder="user@example.com or user ID" />
+            <button class="btn btn-secondary" onclick="lookupRecipient()" id="lookupBtn">Lookup</button>
+          </div>
+
+          <div id="recipientInfo" class="hidden" style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 8px;">
+            <p>Recipient: <strong id="recipientName"></strong></p>
+            <p>Email: <strong id="recipientEmail"></strong></p>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="transferAmount">Amount</label>
+              <input type="number" id="transferAmount" placeholder="0.00" step="0.0001" min="0" />
+            </div>
+            <div class="form-group">
+              <label for="transferToken">Token</label>
+              <select id="transferToken">
+                <option value="cUSD">cUSD</option>
+                <option value="USDT">USDT</option>
+                <option value="ETH">ETH</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="transferChain">Chain</label>
+              <select id="transferChain">
+                <option value="celo">Celo</option>
+                <option value="ethereum">Ethereum</option>
+              </select>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" onclick="initiateTransfer()" id="initiateBtn">Initiate Transfer</button>
+          <div id="initiateResult" class="result-box hidden"></div>
+        </div>
+
+        <!-- Confirm Transfer Section -->
+        <div class="card hidden" id="confirmSection">
+          <h2>Confirm Transfer</h2>
+          <p style="color: #666; margin-bottom: 15px;">A PIN has been sent to your email. Enter PIN and password to confirm.</p>
+          
+          <div class="form-group">
+            <label for="confirmPIN">PIN (6 digits)</label>
+            <input type="text" id="confirmPIN" placeholder="000000" maxlength="6" />
+          </div>
+
+          <div class="form-group">
+            <label for="confirmPassword">Password</label>
+            <input type="password" id="confirmPassword" placeholder="Enter password" />
+          </div>
+
+          <button class="btn btn-success" onclick="confirmTransfer()" id="confirmBtn">Confirm Transfer</button>
+          <div id="confirmResult" class="result-box hidden"></div>
+        </div>
+
+        <!-- Transfer History Section -->
+        <div class="card">
+          <h2>Transfer History</h2>
+          <div class="tabs">
+            <button class="tab active" onclick="switchTransferTab(this, 'sent')">Sent</button>
+            <button class="tab" onclick="switchTransferTab(this, 'received')">Received</button>
+          </div>
+
+          <div id="tab-sent" class="tab-content active">
+            <div id="sentTransfersList" style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                  <tr style="border-bottom: 2px solid #ddd;">
+                    <th style="text-align: left; padding: 10px;">Recipient</th>
+                    <th style="text-align: left; padding: 10px;">Amount</th>
+                    <th style="text-align: left; padding: 10px;">Status</th>
+                    <th style="text-align: left; padding: 10px;">Date</th>
+                  </tr>
+                </thead>
+                <tbody id="sentBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="tab-received" class="tab-content hidden">
+            <div id="receivedTransfersList" style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                  <tr style="border-bottom: 2px solid #ddd;">
+                    <th style="text-align: left; padding: 10px;">Sender</th>
+                    <th style="text-align: left; padding: 10px;">Amount</th>
+                    <th style="text-align: left; padding: 10px;">Status</th>
+                    <th style="text-align: left; padding: 10px;">Date</th>
+                  </tr>
+                </thead>
+                <tbody id="receivedBody"></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
