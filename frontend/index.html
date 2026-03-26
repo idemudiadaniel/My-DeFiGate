@@ -27,17 +27,17 @@
       </div>
       <div class="nav-right">
         <span id="userBadge" class="user-badge hidden"></span>
-        <button id="authBtn" class="btn btn-sm btn-primary" onclick="toggleAuth()">Sign In</button>
+        <button id="authBtn" class="btn btn-sm btn-primary">Sign In</button>
       </div>
     </nav>
 
     <!-- ===== AUTH MODAL ===== -->
     <div id="authModal" class="modal hidden">
-      <div class="modal-backdrop" onclick="closeModal()"></div>
+      <div class="modal-backdrop"></div>
       <div class="modal-content">
-        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <button class="modal-close">&times;</button>
         <h2 id="authTitle">Sign In</h2>
-        <form id="authForm" onsubmit="handleAuth(event)">
+        <form id="authForm">
           <div class="form-group">
             <label for="authEmail">Email</label>
             <input type="email" id="authEmail" required placeholder="you@example.com" />
@@ -50,8 +50,24 @@
         </form>
         <p class="auth-toggle">
           <span id="authToggleText">Don't have an account?</span>
-          <a href="#" id="authToggleLink" onclick="switchAuthMode(event)">Sign Up</a>
+          <a href="#" id="authToggleLink">Sign Up</a>
         </p>
+      </div>
+    </div>
+
+    <!-- ===== TOPUP MODAL ===== -->
+    <div id="topupModal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <button class="modal-close">&times;</button>
+        <h2>Top Up Testnet Balance</h2>
+        <form id="topupForm">
+          <div class="form-group">
+            <label for="topupAmount">Amount (USD)</label>
+            <input type="number" id="topupAmount" required placeholder="e.g. 50" min="1" max="1000" step="0.01" />
+          </div>
+          <button type="submit" class="btn btn-primary btn-full" id="topupBtn">Top Up</button>
+        </form>
       </div>
     </div>
 
@@ -75,8 +91,10 @@
           <div class="stat-card">
             <div class="stat-label">Chain</div>
             <div class="stat-value" id="dashChain">&mdash;</div>
-          </div>
-          <div class="stat-card">            <div class="stat-label">Backend Status</div>
+          </div>          <div class="stat-card">
+            <div class="stat-label">Testnet Balance</div>
+            <div class="stat-value" id="dashBalance">$0.00</div>
+          </div>          <div class="stat-card">            <div class="stat-label">Backend Status</div>
             <div class="stat-value" id="dashBackendStatus">Checking...</div>
           </div>
           <div class="stat-card">            <div class="stat-label">Account</div>
@@ -87,15 +105,15 @@
         <div class="quick-actions">
           <h2>Quick Actions</h2>
           <div class="actions-grid">
-            <button class="action-card" onclick="navigateTo('wallet')">
+            <button class="action-card">
               <span class="action-icon">&#128179;</span>
               <span class="action-label">Create Wallet</span>
             </button>
-            <button class="action-card" onclick="navigateTo('ramp')">
+            <button class="action-card">
               <span class="action-icon">&#128176;</span>
-              <span class="action-label">Buy Crypto</span>
+              <span class="action-label">Top Up Balance</span>
             </button>
-            <button class="action-card" onclick="navigateTo('send')">
+            <button class="action-card">
               <span class="action-icon">&#128640;</span>
               <span class="action-label">Send Tokens</span>
             </button>
@@ -122,7 +140,7 @@
               </select>
             </div>
           </div>
-          <button class="btn btn-primary" onclick="createWallet()" id="createWalletBtn">Create Wallet</button>
+          <button class="btn btn-primary" id="createWalletBtn">Create Wallet</button>
           <div id="walletResult" class="result-box hidden"></div>
         </div>
 
@@ -153,8 +171,8 @@
         </div>
 
         <div class="tabs">
-          <button class="tab active" data-tab="onramp" onclick="switchTab(this)">Buy Crypto (On-Ramp)</button>
-          <button class="tab" data-tab="offramp" onclick="switchTab(this)">Sell Crypto (Off-Ramp)</button>
+          <button class="tab active" data-tab="onramp">Buy Crypto (On-Ramp)</button>
+          <button class="tab" data-tab="offramp">Sell Crypto (Off-Ramp)</button>
         </div>
 
         <div id="tab-onramp" class="tab-content active">
@@ -172,7 +190,7 @@
                 <option value="mobile_money">Mobile Money</option>
               </select>
             </div>
-            <button class="btn btn-primary" onclick="createOnramp()" id="onrampBtn">Deposit</button>
+            <button class="btn btn-primary" id="onrampBtn">Deposit</button>
             <div id="onrampResult" class="result-box hidden"></div>
           </div>
         </div>
@@ -197,7 +215,7 @@
               <label for="offrampPhone">Phone Number</label>
               <input type="tel" id="offrampPhone" placeholder="+234..." />
             </div>
-            <button class="btn btn-primary" onclick="createOfframp()" id="offrampBtn">Withdraw</button>
+            <button class="btn btn-primary" id="offrampBtn">Withdraw</button>
             <div id="offrampResult" class="result-box hidden"></div>
           </div>
         </div>
@@ -216,11 +234,11 @@
           <div class="form-group">
             <label for="recipientIdentifier">Recipient Email or UID</label>
             <input type="text" id="recipientIdentifier" placeholder="user@example.com or user ID" />
-            <button class="btn btn-secondary" onclick="lookupRecipient()" id="lookupBtn">Lookup</button>
+            <button class="btn btn-secondary" id="lookupBtn">Lookup</button>
           </div>
 
           <div id="recipientInfo" class="hidden" style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 8px;">
-            <p>Recipient: <strong id="recipientName"></strong></p>
+            <p>Recipient: <strong id="recipientName"></strong> <span id="recipientVerifiedBadge" class="verification-badge">Unknown</span></p>
             <p>Email: <strong id="recipientEmail"></strong></p>
           </div>
 
@@ -246,7 +264,7 @@
             </div>
           </div>
 
-          <button class="btn btn-primary" onclick="initiateTransfer()" id="initiateBtn">Initiate Transfer</button>
+          <button class="btn btn-primary" id="initiateBtn">Initiate Transfer</button>
           <div id="initiateResult" class="result-box hidden"></div>
         </div>
 
@@ -265,7 +283,7 @@
             <input type="password" id="confirmPassword" placeholder="Enter password" />
           </div>
 
-          <button class="btn btn-success" onclick="confirmTransfer()" id="confirmBtn">Confirm Transfer</button>
+          <button class="btn btn-success" id="confirmBtn">Confirm Transfer</button>
           <div id="confirmResult" class="result-box hidden"></div>
         </div>
 
@@ -273,8 +291,8 @@
         <div class="card">
           <h2>Transfer History</h2>
           <div class="tabs">
-            <button class="tab active" onclick="switchTransferTab(this, 'sent')">Sent</button>
-            <button class="tab" onclick="switchTransferTab(this, 'received')">Received</button>
+            <button class="tab active">Sent</button>
+            <button class="tab">Received</button>
           </div>
 
           <div id="tab-sent" class="tab-content active">
@@ -340,7 +358,7 @@
               </select>
             </div>
           </div>
-          <button class="btn btn-primary" onclick="sendTokens()" id="sendBtn">Send</button>
+          <button class="btn btn-primary" id="sendBtn">Send</button>
           <div id="sendResult" class="result-box hidden"></div>
         </div>
       </section>
