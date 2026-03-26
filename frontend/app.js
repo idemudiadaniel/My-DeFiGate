@@ -1,16 +1,114 @@
 // ===== CONFIG =====
-const API = new URLSearchParams(window.location.search).get("api") || window.location.origin;
+const API = "http://localhost:5000";
 
 // ===== STATE =====
 let currentUser = null; // { id, email }
 let currentWallet = null; // { id, address, chain_type }
 let authMode = "signin"; // "signin" | "signup"
 
-// ===== NAVIGATION =====
-document.querySelectorAll(".nav-link").forEach((link) => {
-  link.addEventListener("click", (e) => {
-    e.preventDefault();
-    navigateTo(link.dataset.view);
+// ===== DOM READY =====
+document.addEventListener('DOMContentLoaded', function() {
+  // Set up navigation
+  document.querySelectorAll(".nav-link").forEach((link) => {
+    link.addEventListener("click", (e) => {
+      e.preventDefault();
+      navigateTo(link.dataset.view);
+    });
+  });
+
+  // Set up auth button
+  const authBtn = document.getElementById("authBtn");
+  if (authBtn) {
+    authBtn.addEventListener("click", toggleAuth);
+  }
+
+  // Set up auth form
+  const authForm = document.getElementById("authForm");
+  if (authForm) {
+    authForm.addEventListener("submit", handleAuth);
+  }
+
+  // Set up auth toggle link
+  const authToggleLink = document.getElementById("authToggleLink");
+  if (authToggleLink) {
+    authToggleLink.addEventListener("click", switchAuthMode);
+  }
+
+  // Set up modal close buttons
+  document.querySelectorAll('.modal-backdrop, .modal-close').forEach(el => {
+    el.addEventListener('click', () => {
+      closeModal();
+      closeTopupModal();
+    });
+  });
+
+  // Set up topup form
+  const topupForm = document.getElementById("topupForm");
+  if (topupForm) {
+    topupForm.addEventListener("submit", handleTopup);
+  }
+
+  // Set up wallet creation
+  const createWalletBtn = document.getElementById("createWalletBtn");
+  if (createWalletBtn) {
+    createWalletBtn.addEventListener("click", createWallet);
+  }
+
+  // Set up ramp tabs
+  document.querySelectorAll('.tab[data-tab]').forEach(tab => {
+    tab.addEventListener('click', () => switchTab(tab));
+  });
+
+  // Set up ramp buttons
+  const onrampBtn = document.getElementById("onrampBtn");
+  if (onrampBtn) {
+    onrampBtn.addEventListener("click", createOnramp);
+  }
+  const offrampBtn = document.getElementById("offrampBtn");
+  if (offrampBtn) {
+    offrampBtn.addEventListener("click", createOfframp);
+  }
+
+  // Set up transfer buttons
+  const lookupBtn = document.getElementById("lookupBtn");
+  if (lookupBtn) {
+    lookupBtn.addEventListener("click", lookupRecipient);
+  }
+  const initiateBtn = document.getElementById("initiateBtn");
+  if (initiateBtn) {
+    initiateBtn.addEventListener("click", initiateTransfer);
+  }
+  const confirmBtn = document.getElementById("confirmBtn");
+  if (confirmBtn) {
+    confirmBtn.addEventListener("click", confirmTransfer);
+  }
+
+  // Set up transfer tabs
+  document.querySelectorAll('.tab:not([data-tab])').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const type = tab.textContent.toLowerCase().includes('sent') ? 'sent' : 'received';
+      switchTransferTab(tab, type);
+    });
+  });
+
+  // Set up send button
+  const sendBtn = document.getElementById("sendBtn");
+  if (sendBtn) {
+    sendBtn.addEventListener("click", sendTokens);
+  }
+
+  // Set up action cards
+  document.querySelectorAll('.action-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      const label = card.querySelector('.action-label').textContent;
+      if (label === 'Top Up Balance') {
+        showTopupModal();
+      } else if (label === 'Create Wallet') {
+        navigateTo('wallet');
+      } else if (label === 'Send Tokens') {
+        navigateTo('send');
+      }
+    });
   });
 });
 
@@ -57,6 +155,19 @@ function closeModal() {
   document.getElementById("authModal").classList.add("hidden");
 }
 
+function closeTopupModal() {
+  document.getElementById("topupModal").classList.add("hidden");
+}
+
+function showTopupModal() {
+  if (!currentUser) {
+    toast("Please sign in first", "error");
+    toggleAuth();
+    return;
+  }
+  document.getElementById("topupModal").classList.remove("hidden");
+}
+
 function switchAuthMode(e) {
   e.preventDefault();
   authMode = authMode === "signin" ? "signup" : "signin";
@@ -68,6 +179,45 @@ function switchAuthMode(e) {
     authMode === "signin" ? "Don't have an account?" : "Already have an account?";
   document.getElementById("authToggleLink").textContent =
     authMode === "signin" ? "Sign Up" : "Sign In";
+}
+
+async function handleTopup(e) {
+  e.preventDefault();
+  const amount = document.getElementById("topupAmount").value;
+  const btn = document.getElementById("topupBtn");
+
+  btn.disabled = true;
+  btn.textContent = "Processing...";
+
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (currentUser && localStorage.getItem("authToken")) {
+      headers["Authorization"] = `Bearer ${localStorage.getItem("authToken")}`;
+    }
+
+    const res = await fetch(`${API}/user/topup`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ amount: parseFloat(amount) }),
+    });
+
+    const data = await res.json();
+
+    if (!data.ok) {
+      toast(data.error || "Topup failed", "error");
+      return;
+    }
+
+    currentUser = data.user;
+    updateUI();
+    closeTopupModal();
+    toast(data.message || "Balance topped up!", "success");
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Top Up";
+  }
 }
 
 async function handleAuth(e) {
@@ -377,25 +527,29 @@ async function checkBackendConnection() {
   if (!dashBackendStatus) return;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+
     const res = await fetch(`${API}/api/health`, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
+
     const data = await res.json();
 
     if (res.ok && data.ok) {
       dashBackendStatus.textContent = "Connected";
       dashBackendStatus.style.color = "var(--success)";
-      toast("Backend connected", "success");
     } else {
       dashBackendStatus.textContent = "Offline";
       dashBackendStatus.style.color = "var(--danger)";
-      toast("Backend health check failed", "error");
     }
   } catch (err) {
+    console.warn("Backend health check error:", err.message);
     dashBackendStatus.textContent = "Offline";
     dashBackendStatus.style.color = "var(--danger)";
-    toast("Backend unreachable", "error");
   }
 }
 
@@ -455,6 +609,10 @@ function updateUI() {
     authBtn.classList.remove("btn-primary");
     authBtn.classList.add("btn-danger");
     dashAccount.textContent = currentUser.email;
+    document.getElementById("dashBalance").textContent =
+      currentUser.balance_usd !== undefined
+        ? `$${Number(currentUser.balance_usd).toFixed(2)}`
+        : "$0.00";
   } else {
     badge.classList.add("hidden");
     authBtn.textContent = "Sign In";
@@ -464,20 +622,21 @@ function updateUI() {
     dashWalletStatus.textContent = "No Wallet";
     dashWalletAddr.innerHTML = "&mdash;";
     dashChain.innerHTML = "&mdash;";
+    document.getElementById("dashBalance").textContent = "$0.00";
     document.getElementById("walletInfoCard").classList.add("hidden");
     if (dashBackendStatus) {
       dashBackendStatus.textContent = "Checking...";
       dashBackendStatus.style.color = "var(--info)";
+      checkBackendConnection();
     }
-    checkBackendConnection();
     return;
   }
 
   if (dashBackendStatus) {
     dashBackendStatus.textContent = "Checking...";
     dashBackendStatus.style.color = "var(--info)";
+    checkBackendConnection();
   }
-  checkBackendConnection();
 
   if (currentWallet) {
     if (currentWallet.status === "connected") {
@@ -557,6 +716,16 @@ async function lookupRecipient() {
     selectedRecipient = data.data;
     document.getElementById("recipientName").textContent = selectedRecipient.email;
     document.getElementById("recipientEmail").textContent = selectedRecipient.email;
+    const verifiedBadge = document.getElementById("recipientVerifiedBadge");
+    if (selectedRecipient.is_verified) {
+      verifiedBadge.textContent = "Verified";
+      verifiedBadge.classList.add("verified");
+      verifiedBadge.classList.remove("unverified");
+    } else {
+      verifiedBadge.textContent = "Unverified";
+      verifiedBadge.classList.remove("verified");
+      verifiedBadge.classList.add("unverified");
+    }
     document.getElementById("recipientInfo").classList.remove("hidden");
     toast("Recipient found!", "success");
   } catch (err) {
@@ -675,7 +844,7 @@ async function confirmTransfer() {
     toast("Transfer completed!", "success");
 
     // Reset form
-    setTimeout(() => {
+    setTimeout(async () => {
       document.getElementById("confirmSection").classList.add("hidden");
       document.getElementById("recipientInfo").classList.add("hidden");
       document.getElementById("recipientIdentifier").value = "";
@@ -684,7 +853,8 @@ async function confirmTransfer() {
       document.getElementById("confirmPassword").value = "";
       selectedRecipient = null;
       pendingTransferId = null;
-      loadTransferHistory();
+      await loadTransferHistory();
+      await checkAuthOnLoad();
     }, 2000);
   } catch (err) {
     toast(err.message, "error");
@@ -763,5 +933,13 @@ async function loadTransferHistory() {
 }
 
 // Init
-updateUI();
-checkAuthOnLoad();
+function init() {
+  checkAuthOnLoad().then(() => {
+    updateUI();
+  }).catch(err => {
+    console.error("Init error:", err);
+    updateUI();
+  });
+}
+
+init();

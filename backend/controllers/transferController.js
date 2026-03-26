@@ -50,6 +50,7 @@ export const lookupRecipient = async (req, res) => {
         data: {
           id: recipient.id,
           email: recipient.email,
+          is_verified: !!recipient.is_verified,
         },
       });
     }
@@ -73,7 +74,14 @@ export const lookupRecipient = async (req, res) => {
     }
 
     recipient = result.rows[0];
-    res.json({ ok: true, data: { id: recipient.id, email: recipient.email } });
+    res.json({
+      ok: true,
+      data: {
+        id: recipient.id,
+        email: recipient.email,
+        is_verified: !!recipient.is_verified,
+      },
+    });
   } catch (err) {
     console.error("lookupRecipient error", err);
     res.status(500).json({ ok: false, error: "Lookup failed" });
@@ -219,6 +227,26 @@ export const confirmTransfer = async (req, res) => {
         return res.status(400).json({ ok: false, error: "Invalid PIN" });
       }
 
+      // Ensure sender has enough testnet balance in USD
+      const senderUser = Array.from(inMemoryUsers.values()).find((u) => u.id === senderId);
+      const recipientUser = Array.from(inMemoryUsers.values()).find((u) => u.id === transfer.recipient_id);
+
+      if (!senderUser || !recipientUser) {
+        return res.status(404).json({ ok: false, error: "User not found" });
+      }
+
+      const transferAmount = Number(transfer.amount || 0);
+      if (Number.isNaN(transferAmount) || transferAmount <= 0) {
+        return res.status(400).json({ ok: false, error: "Invalid transfer amount" });
+      }
+
+      if (senderUser.balance_usd < transferAmount) {
+        return res.status(400).json({ ok: false, error: "Insufficient funds" });
+      }
+
+      senderUser.balance_usd -= transferAmount;
+      recipientUser.balance_usd += transferAmount;
+
       // Mark transfer as completed
       transfer.status = "completed";
       transfer.completed_at = new Date().toISOString();
@@ -281,12 +309,59 @@ export const confirmTransfer = async (req, res) => {
       return res.status(401).json({ ok: false, error: "Invalid password" });
     }
 
-    // Update transfer status
+    // Transfer settlement: adjust balances and complete transfer atomically
+    await pool.query("BEGIN");
+
+    const senderBalanceResult = await pool.query(
+      `SELECT balance_usd FROM users WHERE id = $1 FOR UPDATE`,
+      [senderId]
+    );
+
+    if (senderBalanceResult.rows.length === 0) {
+      await pool.query("ROLLBACK");
+      return res.status(404).json({ ok: false, error: "Sender not found" });
+    }
+
+    const senderBalance = Number(senderBalanceResult.rows[0].balance_usd || 0);
+    const transferAmount = Number(transfer.amount || 0);
+
+    if (Number.isNaN(transferAmount) || transferAmount <= 0) {
+      await pool.query("ROLLBACK");
+      return res.status(400).json({ ok: false, error: "Invalid transfer amount" });
+    }
+
+    if (senderBalance < transferAmount) {
+      await pool.query("ROLLBACK");
+      return res.status(400).json({ ok: false, error: "Insufficient funds" });
+    }
+
+    const recipientBalanceResult = await pool.query(
+      `SELECT balance_usd FROM users WHERE id = $1 FOR UPDATE`,
+      [transfer.recipient_id]
+    );
+
+    if (recipientBalanceResult.rows.length === 0) {
+      await pool.query("ROLLBACK");
+      return res.status(404).json({ ok: false, error: "Recipient not found" });
+    }
+
+    await pool.query(
+      `UPDATE users SET balance_usd = balance_usd - $1 WHERE id = $2`,
+      [transferAmount, senderId]
+    );
+
+    await pool.query(
+      `UPDATE users SET balance_usd = balance_usd + $1 WHERE id = $2`,
+      [transferAmount, transfer.recipient_id]
+    );
+
     const updatedResult = await pool.query(
       `UPDATE transfers SET status = $1, completed_at = NOW() WHERE id = $2
        RETURNING id, sender_id, recipient_id, amount, token_symbol, chain, status, completed_at`,
       ["completed", transferId]
     );
+
+    await pool.query("COMMIT");
 
     const completedTransfer = updatedResult.rows[0];
 

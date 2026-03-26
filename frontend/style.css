@@ -218,6 +218,25 @@ body {
   word-break: break-all;
 }
 
+.verification-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+  background: #6c757d;
+}
+
+.verification-badge.verified {
+  background: #00c48c;
+}
+
+.verification-badge.unverified {
+  background: #ff4757;
+}
+
 /* ===== QUICK ACTIONS ===== */
 .quick-actions h2 {
   font-size: 1.1rem;

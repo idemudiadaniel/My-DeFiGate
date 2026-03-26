@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
   privy_wallet_id TEXT,
   kyc_status TEXT DEFAULT 'pending',
   status TEXT NOT NULL DEFAULT 'active',
-  is_verified BOOLEAN DEFAULT FALSE,
+  is_verified BOOLEAN DEFAULT TRUE,
+  balance_usd NUMERIC(18,2) NOT NULL DEFAULT 100.00,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );

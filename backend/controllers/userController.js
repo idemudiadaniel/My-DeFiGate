@@ -40,7 +40,13 @@ export const signup = async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
-    const user = { id, email: normalizedEmail, password_hash: hash };
+    const user = {
+      id,
+      email: normalizedEmail,
+      password_hash: hash,
+      balance_usd: 100.00,
+      is_verified: true,
+    };
     inMemoryUsers.set(normalizedEmail, user);
 
     let wallet;
@@ -104,6 +110,10 @@ export const signin = async (req, res) => {
       return res.status(401).json({ ok: false, error: "Invalid credentials" });
     }
 
+    // Ensure balance_usd and is_verified exist
+    if (user.balance_usd === undefined) user.balance_usd = 100.00;
+    if (user.is_verified === undefined) user.is_verified = true;
+
     let wallet;
     try {
       wallet = await ensureUserWallet(user.id, user.email, "ethereum");
@@ -113,12 +123,22 @@ export const signin = async (req, res) => {
     }
 
     const token = generateToken(user);
-    return res.json({ ok: true, user: { id: user.id, email: user.email }, wallet, token });
+    return res.json({
+      ok: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        balance_usd: user.balance_usd,
+        is_verified: user.is_verified,
+      },
+      wallet,
+      token,
+    });
   }
 
   try {
     const result = await pool.query(
-      `SELECT id, email, password_hash FROM users WHERE email = $1`,
+      `SELECT id, email, password_hash, balance_usd, is_verified FROM users WHERE email = $1`,
       [normalizedEmail]
     );
 
@@ -144,7 +164,12 @@ export const signin = async (req, res) => {
     const token = generateToken(user);
     res.json({
       ok: true,
-      user: { id: user.id, email: user.email },
+      user: {
+        id: user.id,
+        email: user.email,
+        balance_usd: user.balance_usd,
+        is_verified: user.is_verified,
+      },
       wallet,
       token,
     });
@@ -160,15 +185,96 @@ export const signout = async (req, res) => {
   res.json({ ok: true, message: "Signed out successfully" });
 };
 
+export const topup = async (req, res) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ ok: false, error: "Not authenticated" });
+  }
+
+  const { amount } = req.body;
+  const topupAmount = parseFloat(amount);
+
+  if (!topupAmount || topupAmount <= 0 || topupAmount > 1000) {
+    return res.status(400).json({ ok: false, error: "Invalid amount (1-1000 USD)" });
+  }
+
+  try {
+    if (useInMemoryAuth) {
+      const fullUser = inMemoryUsers.get(normalizeEmail(user.email));
+      if (!fullUser) {
+        return res.status(401).json({ ok: false, error: "User not found" });
+      }
+      if (fullUser.balance_usd === undefined) fullUser.balance_usd = 100.00;
+      fullUser.balance_usd += topupAmount;
+      return res.json({
+        ok: true,
+        user: {
+          id: fullUser.id,
+          email: fullUser.email,
+          balance_usd: fullUser.balance_usd,
+          is_verified: fullUser.is_verified,
+        },
+        message: `Topped up $${topupAmount.toFixed(2)}`,
+      });
+    }
+
+    // DB mode
+    const result = await pool.query(
+      `UPDATE users SET balance_usd = balance_usd + $1 WHERE id = $2
+       RETURNING id, email, balance_usd, is_verified`,
+      [topupAmount, user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "User not found" });
+    }
+
+    const updatedUser = result.rows[0];
+    res.json({
+      ok: true,
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        balance_usd: updatedUser.balance_usd,
+        is_verified: updatedUser.is_verified,
+      },
+      message: `Topped up $${topupAmount.toFixed(2)}`,
+    });
+  } catch (err) {
+    console.error("topup error", err);
+    res.status(500).json({ ok: false, error: "Topup failed" });
+  }
+};
+
 export const getMe = async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
 
+  let fullUser;
+  if (useInMemoryAuth) {
+    fullUser = inMemoryUsers.get(normalizeEmail(user.email));
+    if (!fullUser) {
+      return res.status(401).json({ ok: false, error: "User not found" });
+    }
+    // Ensure fields exist
+    if (fullUser.balance_usd === undefined) fullUser.balance_usd = 100.00;
+    if (fullUser.is_verified === undefined) fullUser.is_verified = true;
+  } else {
+    const result = await pool.query(
+      `SELECT id, email, balance_usd, is_verified FROM users WHERE id = $1`,
+      [user.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(401).json({ ok: false, error: "User not found" });
+    }
+    fullUser = result.rows[0];
+  }
+
   let wallet;
   try {
-    wallet = await ensureUserWallet(user.id, user.email, "ethereum");
+    wallet = await ensureUserWallet(fullUser.id, fullUser.email, "ethereum");
   } catch (err) {
     console.error("getMe wallet error", err?.message || err);
     wallet = { status: "disconnected", error: err?.message || "Wallet lookup failed" };
@@ -176,7 +282,12 @@ export const getMe = async (req, res) => {
 
   res.json({
     ok: true,
-    user: { id: user.id, email: user.email },
+    user: {
+      id: fullUser.id,
+      email: fullUser.email,
+      balance_usd: fullUser.balance_usd,
+      is_verified: fullUser.is_verified,
+    },
     wallet,
   });
 };
