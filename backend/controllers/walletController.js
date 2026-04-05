@@ -77,68 +77,46 @@ export async function ensureUserWallet(userId, email, chainType = "ethereum") {
 
   const key = `${userId}:${chainType}`;
 
-  if (!process.env.DATABASE_URL) {
-    // in-memory fallback, one wallet per user per chain
-    if (inMemoryWallets.has(key)) {
-      return inMemoryWallets.get(key);
-    }
-
-    if (!isPrivyEnabled) {
-      const wallet = {
-        id: key,
-        provider: "local",
-        provider_wallet_id: null,
-        address: null,
-        chain: chainType,
-        status: "disconnected",
-        created_at: new Date().toISOString(),
-      };
-      inMemoryWallets.set(key, wallet);
-      return wallet;
-    }
-
-    // For different chains, we'll create separate wallet records but may reuse Privy wallet
-    // For simplicity, let's create a new Privy wallet for each chain request
+  // Try DB first if configured
+  if (process.env.DATABASE_URL) {
     try {
+      const existing = await getWalletByUserIdAndChain(userId, chainType);
+      if (existing) {
+        return { ...existing, status: "connected" };
+      }
+
+      if (!isPrivyEnabled) {
+        const wallet = {
+          id: key,
+          user_id: userId,
+          provider: "local",
+          provider_wallet_id: null,
+          address: null,
+          chain: chainType,
+          status: "disconnected",
+          created_at: new Date().toISOString(),
+        };
+        // do not persist when no DB wallet endpoint expected
+        return wallet;
+      }
+
       const privyWallet = await createPrivyWallet(chainType);
-      const wallet = {
-        id: `${privyWallet.id}_${chainType}`, // Make ID unique per chain
-        provider: "privy",
-        provider_wallet_id: privyWallet.id,
-        address: privyWallet.accounts?.[0]?.address || privyWallet.address || null,
-        chain: chainType,
-        status: "connected",
-        created_at: new Date().toISOString(),
-        metadata: privyWallet,
-      };
-      inMemoryWallets.set(key, wallet);
-      return wallet;
+      const wallet = await saveWallet(userId, privyWallet, chainType);
+      return { ...wallet, status: "connected", metadata: privyWallet };
     } catch (err) {
-      console.error("ensureUserWallet privy error", err?.response?.data || err?.message || err);
-      const wallet = {
-        id: key,
-        provider: "local",
-        provider_wallet_id: null,
-        address: null,
-        chain: chainType,
-        status: "disconnected",
-        created_at: new Date().toISOString(),
-        error: err?.response?.data || err?.message,
-      };
-      inMemoryWallets.set(key, wallet);
-      return wallet;
+      console.error("DB wallet error, falling back to in-memory", err?.message || err);
+      // Fall through to in-memory
     }
   }
 
-  const existing = await getWalletByUserIdAndChain(userId, chainType);
-  if (existing) {
-    return { ...existing, status: "connected" };
+  // In-memory fallback
+  if (inMemoryWallets.has(key)) {
+    return inMemoryWallets.get(key);
   }
 
   if (!isPrivyEnabled) {
     const wallet = {
       id: key,
-      user_id: userId,
       provider: "local",
       provider_wallet_id: null,
       address: null,
@@ -146,19 +124,30 @@ export async function ensureUserWallet(userId, email, chainType = "ethereum") {
       status: "disconnected",
       created_at: new Date().toISOString(),
     };
-    // do not persist when no DB wallet endpoint expected
+    inMemoryWallets.set(key, wallet);
     return wallet;
   }
 
+  // For different chains, we'll create separate wallet records but may reuse Privy wallet
+  // For simplicity, let's create a new Privy wallet for each chain request
   try {
     const privyWallet = await createPrivyWallet(chainType);
-    const wallet = await saveWallet(userId, privyWallet, chainType);
-    return { ...wallet, status: "connected", metadata: privyWallet };
+    const wallet = {
+      id: `${privyWallet.id}_${chainType}`, // Make ID unique per chain
+      provider: "privy",
+      provider_wallet_id: privyWallet.id,
+      address: privyWallet.accounts?.[0]?.address || privyWallet.address || null,
+      chain: chainType,
+      status: "connected",
+      created_at: new Date().toISOString(),
+      metadata: privyWallet,
+    };
+    inMemoryWallets.set(key, wallet);
+    return wallet;
   } catch (err) {
     console.error("ensureUserWallet privy error", err?.response?.data || err?.message || err);
-    return {
+    const wallet = {
       id: key,
-      user_id: userId,
       provider: "local",
       provider_wallet_id: null,
       address: null,
@@ -167,6 +156,8 @@ export async function ensureUserWallet(userId, email, chainType = "ethereum") {
       created_at: new Date().toISOString(),
       error: err?.response?.data || err?.message,
     };
+    inMemoryWallets.set(key, wallet);
+    return wallet;
   }
 }
 
@@ -204,8 +195,8 @@ export const sendTxToAddress = async (req, res) => {
     // Build an EVM transaction request for Privy
     const caip2 = chainToCaip2(chain);
     const txBody = {
-      chain_type: "ethereum",
-      method: "eth_sendTransaction",
+      chain_type: chain === "solana" ? "solana" : "ethereum", // Use actual chain type
+      method: chain === "solana" ? "solana_signAndSendTransaction" : "eth_sendTransaction",
       caip2,
       params: {
         transaction: {

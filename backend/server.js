@@ -20,7 +20,7 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // Serve frontend static files
-app.use(express.static(path.join(__dirname, "../frontend")));
+app.use(express.static(path.join(__dirname, "../frontend/dist")));
 
 // API Routes
 import rampRoutes from "./routes/ramp.js";
@@ -41,8 +41,8 @@ app.get("/api/health", (req, res) => {
 });
 
 // Fallback: serve frontend for any unmatched route (SPA support)
-app.get("/{*splat}", (req, res) => {
-  res.sendFile(path.join(__dirname, "../frontend/index.html"));
+app.use((req, res) => {
+  res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
 });
 
 const PORT = process.env.PORT || 5000;

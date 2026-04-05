@@ -31,64 +31,70 @@ export const signup = async (req, res) => {
       .json({ ok: false, error: "Email and password (min 6 chars) are required" });
   }
 
-  if (useInMemoryAuth) {
-    if (inMemoryUsers.has(normalizedEmail)) {
-      return res
-        .status(400)
-        .json({ ok: false, error: "Email already exists" });
-    }
+  // Try DB first if configured, fall back to in-memory
+  let useDB = Boolean(process.env.DATABASE_URL);
+  let dbError = null;
 
-    const hash = await bcrypt.hash(password, 10);
-    const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
-    const user = {
-      id,
-      email: normalizedEmail,
-      password_hash: hash,
-      balance_usd: 100.00,
-      is_verified: true,
-    };
-    inMemoryUsers.set(normalizedEmail, user);
-
-    let wallet;
+  if (useDB) {
     try {
-      wallet = await ensureUserWallet(id, normalizedEmail, "ethereum");
-    } catch (err) {
-      console.error("inMemory signup wallet error", err?.message || err);
-      wallet = { status: "disconnected", error: err?.message || "Wallet create failed" };
-    }
+      const hash = await bcrypt.hash(password, 10);
 
-    const token = generateToken(user);
-    return res.json({ ok: true, user: { id, email: normalizedEmail }, wallet, token });
+      const result = await pool.query(
+        `INSERT INTO users (email, password_hash)
+         VALUES ($1, $2)
+         RETURNING id, email, created_at`,
+        [normalizedEmail, hash]
+      );
+
+      const user = result.rows[0];
+      let wallet;
+      try {
+        wallet = await ensureUserWallet(user.id, user.email, "ethereum");
+      } catch (err) {
+        console.error("DB signup wallet error", err?.message || err);
+        wallet = { status: "disconnected", error: err?.message || "Wallet create failed" };
+      }
+
+      const token = generateToken(user);
+      return res.json({ ok: true, user, wallet, token });
+    } catch (err) {
+      console.error("DB signup error", err);
+      dbError = err;
+      useDB = false; // Fall back to in-memory
+    }
   }
 
+  // In-memory fallback
+  console.log('using in-memory auth', dbError?.message || 'DB not configured');
+  if (inMemoryUsers.has(normalizedEmail)) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "Email already exists" });
+  }
+
+  const hash = await bcrypt.hash(password, 10);
+  const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+  const user = {
+    id,
+    email: normalizedEmail,
+    password_hash: hash,
+    balance_usd: 100.00,
+    is_verified: true,
+  };
+  inMemoryUsers.set(normalizedEmail, user);
+
+  let wallet;
   try {
-    const hash = await bcrypt.hash(password, 10);
-
-    const result = await pool.query(
-      `INSERT INTO users (email, password_hash)
-       VALUES ($1, $2)
-       RETURNING id, email, created_at`,
-      [normalizedEmail, hash]
-    );
-
-    const user = result.rows[0];
-    let wallet;
-    try {
-      wallet = await ensureUserWallet(user.id, user.email, "ethereum");
-    } catch (err) {
-      console.error("DB signup wallet error", err?.message || err);
-      wallet = { status: "disconnected", error: err?.message || "Wallet create failed" };
-    }
-
-    const token = generateToken(user);
-    res.json({ ok: true, user, wallet, token });
+    wallet = await ensureUserWallet(id, normalizedEmail, "ethereum");
+    console.log('wallet created', wallet);
   } catch (err) {
-    if (err.code === "23505") {
-      return res.status(400).json({ ok: false, error: "Email already exists" });
-    }
-    console.error("signup error", err);
-    res.status(500).json({ ok: false, error: "Signup failed" });
+    console.error("inMemory signup wallet error", err?.message || err);
+    wallet = { status: "disconnected", error: err?.message || "Wallet create failed" };
   }
+
+  const token = generateToken(user);
+  console.log('signup success', { id, email: normalizedEmail });
+  return res.json({ ok: true, user: { id, email: normalizedEmail }, wallet, token });
 };
 
 export const signin = async (req, res) => {

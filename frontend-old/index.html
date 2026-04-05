@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DeFiGate</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <!-- ===== NAV ===== -->
+    <nav class="navbar">
+      <div class="nav-brand">
+        <span class="logo-icon">&#9670;</span> DeFiGate
+      </div>
+      <div class="nav-links">
+        <a href="#" class="nav-link active" data-view="dashboard">Dashboard</a>
+        <a href="#" class="nav-link" data-view="wallet">Wallet</a>
+        <a href="#" class="nav-link" data-view="ramp">On/Off Ramp</a>
+        <a href="#" class="nav-link" data-view="transfer">Transfer</a>
+        <a href="#" class="nav-link" data-view="send">Send</a>
+      </div>
+      <div class="nav-right">
+        <span id="userBadge" class="user-badge hidden"></span>
+        <button id="authBtn" class="btn btn-sm btn-primary">Sign In</button>
+      </div>
+    </nav>
+
+    <!-- ===== AUTH MODAL ===== -->
+    <div id="authModal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <button class="modal-close">&times;</button>
+        <h2 id="authTitle">Sign In</h2>
+        <form id="authForm">
+          <div class="form-group">
+            <label for="authEmail">Email</label>
+            <input type="email" id="authEmail" required placeholder="you@example.com" />
+          </div>
+          <div class="form-group">
+            <label for="authPassword">Password</label>
+            <input type="password" id="authPassword" required placeholder="Password" />
+          </div>
+          <button type="submit" class="btn btn-primary btn-full" id="authSubmitBtn">Sign In</button>
+        </form>
+        <p class="auth-toggle">
+          <span id="authToggleText">Don't have an account?</span>
+          <a href="#" id="authToggleLink">Sign Up</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- ===== TOPUP MODAL ===== -->
+    <div id="topupModal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <button class="modal-close">&times;</button>
+        <h2>Top Up Testnet Balance</h2>
+        <form id="topupForm">
+          <div class="form-group">
+            <label for="topupAmount">Amount (USD)</label>
+            <input type="number" id="topupAmount" required placeholder="e.g. 50" min="1" max="1000" step="0.01" />
+          </div>
+          <button type="submit" class="btn btn-primary btn-full" id="topupBtn">Top Up</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <main class="container">
+      <!-- Dashboard View -->
+      <section id="view-dashboard" class="view active">
+        <div class="page-header">
+          <h1>Dashboard</h1>
+          <p class="subtitle">Your DeFi gateway to African markets</p>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Wallet Status</div>
+            <div class="stat-value" id="dashWalletStatus">No Wallet</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Wallet Address</div>
+            <div class="stat-value stat-mono" id="dashWalletAddr">&mdash;</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Chain</div>
+            <div class="stat-value" id="dashChain">&mdash;</div>
+          </div>          <div class="stat-card">
+            <div class="stat-label">Testnet Balance</div>
+            <div class="stat-value" id="dashBalance">$0.00</div>
+          </div>          <div class="stat-card">            <div class="stat-label">Backend Status</div>
+            <div class="stat-value" id="dashBackendStatus">Checking...</div>
+          </div>
+          <div class="stat-card">            <div class="stat-label">Account</div>
+            <div class="stat-value" id="dashAccount">Not signed in</div>
+          </div>
+        </div>
+
+        <div class="quick-actions">
+          <h2>Quick Actions</h2>
+          <div class="actions-grid">
+            <button class="action-card">
+              <span class="action-icon">&#128179;</span>
+              <span class="action-label">Create Wallet</span>
+            </button>
+            <button class="action-card">
+              <span class="action-icon">&#128176;</span>
+              <span class="action-label">Top Up Balance</span>
+            </button>
+            <button class="action-card">
+              <span class="action-icon">&#128640;</span>
+              <span class="action-label">Send Tokens</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Wallet View -->
+      <section id="view-wallet" class="view">
+        <div class="page-header">
+          <h1>Wallet</h1>
+          <p class="subtitle">Create and manage your embedded wallet via Privy</p>
+        </div>
+        <div class="card">
+          <h3>Create Embedded Wallet</h3>
+          <p class="card-desc">Creates a new wallet linked to your account using Privy's server-side wallet infrastructure.</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="walletChain">Chain</label>
+              <select id="walletChain">
+                <option value="ethereum">Ethereum</option>
+                <option value="celo">Celo</option>
+                <option value="solana">Solana</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="createWalletBtn">Create Wallet</button>
+          <div id="walletResult" class="result-box hidden"></div>
+        </div>
+
+        <div class="card hidden" id="walletInfoCard">
+          <h3>Your Wallet</h3>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label">Wallet ID</span>
+              <span class="info-value" id="infoWalletId"></span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Address</span>
+              <span class="info-value info-mono" id="infoWalletAddr"></span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Chain</span>
+              <span class="info-value" id="infoWalletChain"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- On/Off Ramp View -->
+      <section id="view-ramp" class="view">
+        <div class="page-header">
+          <h1>On/Off Ramp</h1>
+          <p class="subtitle">Convert between fiat (NGN) and crypto via Kotani Pay</p>
+        </div>
+
+        <div class="tabs">
+          <button class="tab active" data-tab="onramp">Buy Crypto (On-Ramp)</button>
+          <button class="tab" data-tab="offramp">Sell Crypto (Off-Ramp)</button>
+        </div>
+
+        <div id="tab-onramp" class="tab-content active">
+          <div class="card">
+            <h3>Deposit NGN &rarr; Crypto</h3>
+            <p class="card-desc">Deposit Nigerian Naira via bank transfer or mobile money and receive crypto in your wallet.</p>
+            <div class="form-group">
+              <label for="onrampAmount">Amount (NGN)</label>
+              <input type="number" id="onrampAmount" placeholder="e.g. 5000" min="100" />
+            </div>
+            <div class="form-group">
+              <label for="onrampChannel">Payment Channel</label>
+              <select id="onrampChannel">
+                <option value="bank_checkout">Bank Transfer</option>
+                <option value="mobile_money">Mobile Money</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" id="onrampBtn">Deposit</button>
+            <div id="onrampResult" class="result-box hidden"></div>
+          </div>
+        </div>
+
+        <div id="tab-offramp" class="tab-content">
+          <div class="card">
+            <h3>Withdraw Crypto &rarr; NGN</h3>
+            <p class="card-desc">Convert your crypto to NGN and withdraw to your bank account or mobile money.</p>
+            <div class="form-group">
+              <label for="offrampAmount">Amount (Crypto)</label>
+              <input type="number" id="offrampAmount" placeholder="e.g. 10" step="0.01" min="0.01" />
+            </div>
+            <div class="form-group">
+              <label for="offrampToken">Token</label>
+              <select id="offrampToken">
+                <option value="cUSD">cUSD</option>
+                <option value="USDT">USDT</option>
+                <option value="USDC">USDC</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="offrampPhone">Phone Number</label>
+              <input type="tel" id="offrampPhone" placeholder="+234..." />
+            </div>
+            <button class="btn btn-primary" id="offrampBtn">Withdraw</button>
+            <div id="offrampResult" class="result-box hidden"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Transfer View -->
+      <section id="view-transfer" class="view">
+        <div class="page-header">
+          <h1>Send to User</h1>
+          <p class="subtitle">Transfer tokens to another DeFiGate user</p>
+        </div>
+
+        <!-- Initiate Transfer Section -->
+        <div class="card">
+          <h2>Initiate Transfer</h2>
+          <div class="form-group">
+            <label for="recipientIdentifier">Recipient Email or UID</label>
+            <input type="text" id="recipientIdentifier" placeholder="user@example.com or user ID" />
+            <button class="btn btn-secondary" id="lookupBtn">Lookup</button>
+          </div>
+
+          <div id="recipientInfo" class="hidden" style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 8px;">
+            <p>Recipient: <strong id="recipientName"></strong> <span id="recipientVerifiedBadge" class="verification-badge">Unknown</span></p>
+            <p>Email: <strong id="recipientEmail"></strong></p>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="transferAmount">Amount</label>
+              <input type="number" id="transferAmount" placeholder="0.00" step="0.0001" min="0" />
+            </div>
+            <div class="form-group">
+              <label for="transferToken">Token</label>
+              <select id="transferToken">
+                <option value="cUSD">cUSD</option>
+                <option value="USDT">USDT</option>
+                <option value="ETH">ETH</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="transferChain">Chain</label>
+              <select id="transferChain">
+                <option value="celo">Celo</option>
+                <option value="ethereum">Ethereum</option>
+              </select>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" id="initiateBtn">Initiate Transfer</button>
+          <div id="initiateResult" class="result-box hidden"></div>
+        </div>
+
+        <!-- Confirm Transfer Section -->
+        <div class="card hidden" id="confirmSection">
+          <h2>Confirm Transfer</h2>
+          <p style="color: #666; margin-bottom: 15px;">A PIN has been sent to your email. Enter PIN and password to confirm.</p>
+          
+          <div class="form-group">
+            <label for="confirmPIN">PIN (6 digits)</label>
+            <input type="text" id="confirmPIN" placeholder="000000" maxlength="6" />
+          </div>
+
+          <div class="form-group">
+            <label for="confirmPassword">Password</label>
+            <input type="password" id="confirmPassword" placeholder="Enter password" />
+          </div>
+
+          <button class="btn btn-success" id="confirmBtn">Confirm Transfer</button>
+          <div id="confirmResult" class="result-box hidden"></div>
+        </div>
+
+        <!-- Transfer History Section -->
+        <div class="card">
+          <h2>Transfer History</h2>
+          <div class="tabs">
+            <button class="tab active">Sent</button>
+            <button class="tab">Received</button>
+          </div>
+
+          <div id="tab-sent" class="tab-content active">
+            <div id="sentTransfersList" style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                  <tr style="border-bottom: 2px solid #ddd;">
+                    <th style="text-align: left; padding: 10px;">Recipient</th>
+                    <th style="text-align: left; padding: 10px;">Amount</th>
+                    <th style="text-align: left; padding: 10px;">Status</th>
+                    <th style="text-align: left; padding: 10px;">Date</th>
+                  </tr>
+                </thead>
+                <tbody id="sentBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="tab-received" class="tab-content hidden">
+            <div id="receivedTransfersList" style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                  <tr style="border-bottom: 2px solid #ddd;">
+                    <th style="text-align: left; padding: 10px;">Sender</th>
+                    <th style="text-align: left; padding: 10px;">Amount</th>
+                    <th style="text-align: left; padding: 10px;">Status</th>
+                    <th style="text-align: left; padding: 10px;">Date</th>
+                  </tr>
+                </thead>
+                <tbody id="receivedBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Send View -->
+      <section id="view-send" class="view">
+        <div class="page-header">
+          <h1>Send Tokens</h1>
+          <p class="subtitle">Transfer tokens to any address on supported chains</p>
+        </div>
+        <div class="card">
+          <div class="form-group">
+            <label for="sendToAddress">Recipient Address</label>
+            <input type="text" id="sendToAddress" placeholder="0x..." />
+          </div>
+          <div class="form-group">
+            <label for="sendTokenAddress">Token Contract Address</label>
+            <input type="text" id="sendTokenAddress" placeholder="0x... (leave empty for native token)" />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="sendAmount">Amount</label>
+              <input type="number" id="sendAmount" placeholder="0.00" step="0.0001" min="0" />
+            </div>
+            <div class="form-group">
+              <label for="sendChain">Chain</label>
+              <select id="sendChain">
+                <option value="celo">Celo</option>
+                <option value="ethereum">Ethereum</option>
+                <option value="base">Base</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="sendBtn">Send</button>
+          <div id="sendResult" class="result-box hidden"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ===== TOAST ===== -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
