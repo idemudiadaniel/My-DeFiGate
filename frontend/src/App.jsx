@@ -21,7 +21,7 @@ import HistoryPage from './pages/HistoryPage'
 import SettingsPage from './pages/SettingsPage'
 import SignupPage from './pages/SignupPage'
 
-const API = 'http://localhost:5000';
+const API = '';
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null); // { id, email }
