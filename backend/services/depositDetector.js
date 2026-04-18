@@ -10,6 +10,8 @@ const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
 const processedSignatures = new Set(); // In production, use DB
 
 export async function checkDeposits() {
+  if (!process.env.DATABASE_URL) return; // Skip in in-memory mode
+
   try {
     // Get all wallets
     const wallets = await pool.query(`
