@@ -21,7 +21,7 @@ import HistoryPage from './pages/HistoryPage'
 import SettingsPage from './pages/SettingsPage'
 import SignupPage from './pages/SignupPage'
 
-const API = '';
+const API = 'http://localhost:5000';
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null); // { id, email }
@@ -71,7 +71,17 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const data = await res.json();
+
+      let data;
+      try {
+        const text = await res.text();
+        console.log('Raw response:', text);
+        data = JSON.parse(text);
+      } catch (jsonErr) {
+        console.error('Invalid JSON response:', jsonErr);
+        toast("Server returned invalid response", "error");
+        return;
+      }
 
       if (!data.ok) {
         toast(data.error || "Auth failed", "error");

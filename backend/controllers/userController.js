@@ -63,7 +63,7 @@ export const signup = async (req, res) => {
       company: company || null,
       password_hash: hash,
       balance_usd: 100.0,
-      available_balance: 0,
+      available_balance: 100, // For testing in in-memory
       is_verified: true,
       kyc_status: "pending",
       email_verification_token: null,

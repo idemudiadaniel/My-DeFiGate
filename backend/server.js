@@ -54,6 +54,12 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, service: "DeFiGate", timestamp: new Date().toISOString() });
 });
 
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Global error:', err);
+  res.status(500).json({ ok: false, message: err.message || 'Internal server error' });
+});
+
 // Fallback: serve frontend for any unmatched route (SPA support)
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
