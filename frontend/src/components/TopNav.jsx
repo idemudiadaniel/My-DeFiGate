@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const TopNav = ({ user, theme, onToggleTheme, onLogout, backendStatus }) => {
+const TopNav = ({ user, theme, toggleTheme, onLogout, backendStatus }) => {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   const getUserInitial = () => {
@@ -22,7 +22,7 @@ const TopNav = ({ user, theme, onToggleTheme, onLogout, backendStatus }) => {
           {backendStatus === 'online' ? 'Backend Online' : 'Backend Offline'}
         </div>
 
-        <button className="theme-toggle" onClick={onToggleTheme} title="Toggle theme">
+        <button className="theme-toggle" onClick={toggleTheme} title="Toggle theme">
           {theme === 'light' ? '🌙' : '☀️'}
         </button>
 

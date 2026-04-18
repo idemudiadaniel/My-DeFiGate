@@ -4,6 +4,7 @@ import bodyParser from "body-parser";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import { sequelize } from "./models/index.js";
 
 dotenv.config();
 
@@ -13,7 +14,19 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 if (!process.env.DATABASE_URL) {
-  console.warn("WARNING: DATABASE_URL is not set. User signup/signin uses in-memory fallback (non-persistent) for development.");
+  console.warn("WARNING: DATABASE_URL is not set. Using in-memory fallback for development.");
+} else {
+  // Initialize Sequelize if DATABASE_URL is set
+  (async () => {
+    try {
+      await sequelize.authenticate();
+      console.log("✅ Sequelize database connected");
+      await sequelize.sync({ alter: process.env.NODE_ENV === "development" });
+      console.log("✅ Sequelize models synchronized");
+    } catch (err) {
+      console.error("❌ Sequelize initialization error:", err.message);
+    }
+  })();
 }
 
 app.use(cors());

@@ -18,6 +18,12 @@ const TransferPage = ({ user, onShowToast }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (!user) {
+      onShowToast('Please sign in first', 'error');
+      return;
+    }
+    
     setLoading(true);
 
     try {
@@ -111,6 +117,7 @@ const TransferPage = ({ user, onShowToast }) => {
               onChange={handleInputChange}
               placeholder="0.00"
               step="0.0001"
+              autoComplete="off"
               required
             />
           </div>

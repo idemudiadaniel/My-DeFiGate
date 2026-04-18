@@ -18,6 +18,12 @@ const RampPage = ({ user, onShowToast }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (!user) {
+      onShowToast('Please sign in first', 'error');
+      return;
+    }
+    
     setLoading(true);
 
     try {

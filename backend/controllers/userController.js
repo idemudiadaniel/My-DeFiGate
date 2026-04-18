@@ -36,7 +36,7 @@ async function getWalletForUser(userId) {
 }
 
 export const signup = async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, name, walletAddress, phone, company } = req.body;
   const normalizedEmail = normalizeEmail(email);
 
   if (!normalizedEmail || !password || password.length < 6) {
@@ -48,7 +48,7 @@ export const signup = async (req, res) => {
 
   if (useInMemoryAuth) {
     if (inMemoryUsers.has(normalizedEmail)) {
-      return respondError(res, 409, "Email already exists", false);
+      return respondError(res, 409, "User already exists with this email", false);
     }
 
     const hash = await bcrypt.hash(password, 10);
@@ -56,16 +56,19 @@ export const signup = async (req, res) => {
     const user = {
       id,
       email: normalizedEmail,
+      name: name || null,
+      walletAddress: walletAddress || null,
+      phone: phone || null,
+      company: company || null,
       password_hash: hash,
       balance_usd: 100.0,
-      is_verified: false,
+      is_verified: true,
       kyc_status: "pending",
-      email_verification_token: verificationToken,
+      email_verification_token: null,
       preferred_chain: preferredChain,
     };
     inMemoryUsers.set(normalizedEmail, user);
 
-    const emailResponse = await sendVerificationEmail(normalizedEmail, verificationToken);
     let wallet;
     try {
       wallet = await ensureUserWallet(id, normalizedEmail, preferredChain);
@@ -79,26 +82,36 @@ export const signup = async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
+        name: user.name,
+        walletAddress: user.walletAddress,
+        phone: user.phone,
+        company: user.company,
         is_verified: user.is_verified,
         kyc_status: user.kyc_status,
       },
       wallet,
       token,
-      verificationEmail: emailResponse.verificationUrl,
-    }, "Account created. Verification email sent.");
+    }, "Account created and authenticated");
   }
 
   try {
     const hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash, is_verified, email_verification_token, kyc_status, preferred_chain)
-       VALUES ($1, $2, false, $3, 'pending', $4)
-       RETURNING id, email, is_verified, kyc_status, preferred_chain`,
-      [normalizedEmail, hash, verificationToken, preferredChain]
+      `INSERT INTO users (email, password_hash, name, wallet_address, phone, company, is_verified, email_verification_token, kyc_status, preferred_chain)
+       VALUES ($1, $2, $3, $4, $5, $6, false, $7, 'pending', $8)
+       RETURNING id, email, name, wallet_address, phone, company, is_verified, kyc_status, preferred_chain`,
+      [normalizedEmail, hash, name || null, walletAddress || null, phone || null, company || null, verificationToken, preferredChain]
     );
 
     const user = result.rows[0];
-    const emailResponse = await sendVerificationEmail(normalizedEmail, verificationToken);
+    
+    // Mark user as verified immediately (skip verification step for dev)
+    await pool.query(
+      `UPDATE users SET is_verified = true WHERE id = $1`,
+      [user.id]
+    );
+    user.is_verified = true;
+
     let wallet;
     try {
       wallet = await ensureUserWallet(user.id, user.email, preferredChain);
@@ -109,15 +122,29 @@ export const signup = async (req, res) => {
 
     const token = generateToken(user);
     return respondSuccess(res, {
-      user,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        walletAddress: user.wallet_address,
+        phone: user.phone,
+        company: user.company,
+        is_verified: user.is_verified,
+        kyc_status: user.kyc_status,
+      },
       wallet,
       token,
-      verificationEmail: emailResponse.verificationUrl,
-    }, "Account created. Verification email sent.");
+    }, "Account created and authenticated");
   } catch (err) {
     console.error("DB signup error", err);
+    // Handle Sequelize unique constraint errors
+    if (err.name === "SequelizeUniqueConstraintError") {
+      const field = err.errors?.[0]?.path || "field";
+      return respondError(res, 409, `User already exists with this ${field}`, false);
+    }
+    // Handle raw PostgreSQL unique constraint
     if (err.code === "23505") {
-      return respondError(res, 409, "Email already exists", false);
+      return respondError(res, 409, "User already exists with this email or wallet", false);
     }
     return respondError(res, 500, "Account creation failed", true, err.message);
   }
@@ -142,10 +169,6 @@ export const signin = async (req, res) => {
       return respondError(res, 401, "Invalid credentials", false);
     }
 
-    if (!user.is_verified) {
-      return respondError(res, 403, "Email not verified", true, { next: "verify_email" });
-    }
-
     let wallet;
     try {
       wallet = await ensureUserWallet(user.id, user.email, user.preferred_chain || "celo");
@@ -159,6 +182,10 @@ export const signin = async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
+        name: user.name,
+        walletAddress: user.walletAddress,
+        phone: user.phone,
+        company: user.company,
         balance_usd: user.balance_usd,
         is_verified: user.is_verified,
         kyc_status: user.kyc_status,
@@ -170,7 +197,7 @@ export const signin = async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT id, email, password_hash, balance_usd, is_verified, kyc_status, preferred_chain
+      `SELECT id, email, name, wallet_address, phone, company, password_hash, balance_usd, is_verified, kyc_status, preferred_chain
        FROM users WHERE email = $1`,
       [normalizedEmail]
     );
@@ -183,10 +210,6 @@ export const signin = async (req, res) => {
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return respondError(res, 401, "Invalid credentials", false);
-    }
-
-    if (!user.is_verified) {
-      return respondError(res, 403, "Email not verified", true, { next: "verify_email" });
     }
 
     let wallet;
@@ -202,6 +225,10 @@ export const signin = async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
+        name: user.name,
+        walletAddress: user.wallet_address,
+        phone: user.phone,
+        company: user.company,
         balance_usd: user.balance_usd,
         is_verified: user.is_verified,
         kyc_status: user.kyc_status,
@@ -374,6 +401,133 @@ export const topup = async (req, res) => {
   }
 };
 
+export const updateProfile = async (req, res) => {
+  const user = req.user;
+  const { name, phone, company } = req.body;
+
+  if (useInMemoryAuth) {
+    const fullUser = inMemoryUsers.get(normalizeEmail(user.email));
+    if (!fullUser) {
+      return respondError(res, 401, "User not found", false);
+    }
+    if (name !== undefined) fullUser.name = name;
+    if (phone !== undefined) fullUser.phone = phone;
+    if (company !== undefined) fullUser.company = company;
+    return respondSuccess(res, {
+      user: {
+        id: fullUser.id,
+        email: fullUser.email,
+        name: fullUser.name,
+        walletAddress: fullUser.walletAddress,
+        phone: fullUser.phone,
+        company: fullUser.company,
+      },
+    }, "Profile updated");
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE users SET name = COALESCE($1, name), phone = COALESCE($2, phone), company = COALESCE($3, company), updated_at = NOW()
+       WHERE id = $4
+       RETURNING id, email, name, wallet_address, phone, company`,
+      [name, phone, company, user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return respondError(res, 404, "User not found", false);
+    }
+
+    const updatedUser = result.rows[0];
+    return respondSuccess(res, {
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        name: updatedUser.name,
+        walletAddress: updatedUser.wallet_address,
+        phone: updatedUser.phone,
+        company: updatedUser.company,
+      },
+    }, "Profile updated");
+  } catch (err) {
+    console.error("updateProfile error", err);
+    return respondError(res, 500, "Profile update failed", true, err.message);
+  }
+};
+
+export const changePassword = async (req, res) => {
+  const user = req.user;
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword || newPassword.length < 6) {
+    return respondError(res, 400, "Current password and new password (min 6 chars) required", false);
+  }
+
+  if (useInMemoryAuth) {
+    const fullUser = inMemoryUsers.get(normalizeEmail(user.email));
+    if (!fullUser) {
+      return respondError(res, 401, "User not found", false);
+    }
+    const valid = await bcrypt.compare(currentPassword, fullUser.password_hash);
+    if (!valid) {
+      return respondError(res, 401, "Current password incorrect", false);
+    }
+    fullUser.password_hash = await bcrypt.hash(newPassword, 10);
+    return respondSuccess(res, {}, "Password changed");
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT password_hash FROM users WHERE id = $1`,
+      [user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return respondError(res, 404, "User not found", false);
+    }
+
+    const valid = await bcrypt.compare(currentPassword, result.rows[0].password_hash);
+    if (!valid) {
+      return respondError(res, 401, "Current password incorrect", false);
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+      [hash, user.id]
+    );
+
+    return respondSuccess(res, {}, "Password changed");
+  } catch (err) {
+    console.error("changePassword error", err);
+    return respondError(res, 500, "Password change failed", true, err.message);
+  }
+};
+
+export const enable2FA = async (req, res) => {
+  const user = req.user;
+
+  // For simplicity, just set a flag. In real app, integrate with 2FA library.
+  if (useInMemoryAuth) {
+    const fullUser = inMemoryUsers.get(normalizeEmail(user.email));
+    if (!fullUser) {
+      return respondError(res, 401, "User not found", false);
+    }
+    fullUser.two_fa_enabled = true;
+    return respondSuccess(res, { two_fa_enabled: true }, "2FA enabled");
+  }
+
+  try {
+    await pool.query(
+      `UPDATE users SET two_fa_enabled = true, updated_at = NOW() WHERE id = $1`,
+      [user.id]
+    );
+    return respondSuccess(res, { two_fa_enabled: true }, "2FA enabled");
+  } catch (err) {
+    console.error("enable2FA error", err);
+    return respondError(res, 500, "2FA enable failed", true, err.message);
+  }
+};
+
 export const getMe = async (req, res) => {
   const user = req.user;
   if (!user) {
@@ -410,12 +564,14 @@ export const getMe = async (req, res) => {
 
   res.json({
     ok: true,
-    user: {
-      id: fullUser.id,
-      email: fullUser.email,
-      balance_usd: fullUser.balance_usd,
-      is_verified: fullUser.is_verified,
+    data: {
+      user: {
+        id: fullUser.id,
+        email: fullUser.email,
+        balance_usd: fullUser.balance_usd,
+        is_verified: fullUser.is_verified,
+      },
+      wallet,
     },
-    wallet,
   });
 };

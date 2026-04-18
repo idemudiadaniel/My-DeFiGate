@@ -16,6 +16,100 @@ const SettingsPage = ({ currentUser, navigateTo, toggleAuth }) => {
     }));
   };
 
+  const handleChangeEmail = async () => {
+    const newEmail = prompt('Enter new email address:');
+    if (!newEmail) return;
+    try {
+      const response = await fetch('/user/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+        },
+        body: JSON.stringify({ email: newEmail }),
+      });
+      const data = await response.json();
+      if (data.ok) {
+        alert('Email updated successfully');
+        // Update currentUser if needed
+      } else {
+        alert(data.error || 'Failed to update email');
+      }
+    } catch (error) {
+      alert('Network error');
+    }
+  };
+
+  const handleChangePassword = async () => {
+    const currentPassword = prompt('Enter current password:');
+    if (!currentPassword) return;
+    const newPassword = prompt('Enter new password:');
+    if (!newPassword) return;
+    try {
+      const response = await fetch('/user/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+        },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await response.json();
+      if (data.ok) {
+        alert('Password changed successfully');
+      } else {
+        alert(data.error || 'Failed to change password');
+      }
+    } catch (error) {
+      alert('Network error');
+    }
+  };
+
+  const handleEnable2FA = async () => {
+    try {
+      const response = await fetch('/user/enable-2fa', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+        },
+      });
+      const data = await response.json();
+      if (data.ok) {
+        alert('2FA enabled successfully');
+      } else {
+        alert(data.error || 'Failed to enable 2FA');
+      }
+    } catch (error) {
+      alert('Network error');
+    }
+  };
+
+  const handleUpdateProfile = async (field) => {
+    const value = prompt(`Enter new ${field}:`);
+    if (value === null) return;
+    const body = {};
+    body[field] = value;
+    try {
+      const response = await fetch('/user/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (data.ok) {
+        alert(`${field} updated successfully`);
+        // Update currentUser
+      } else {
+        alert(data.error || `Failed to update ${field}`);
+      }
+    } catch (error) {
+      alert('Network error');
+    }
+  };
+
   const handleLogout = () => {
     if (window.confirm('Are you sure you want to log out?')) {
       toggleAuth();
@@ -36,10 +130,41 @@ const SettingsPage = ({ currentUser, navigateTo, toggleAuth }) => {
         <div className="settings-group">
           <div className="setting-item">
             <div className="setting-info">
+              <div className="setting-label">Full Name</div>
+              <div className="setting-value">{currentUser?.name || 'Not set'}</div>
+            </div>
+          </div>
+
+          <div className="setting-item">
+            <div className="setting-info">
               <div className="setting-label">Email</div>
               <div className="setting-value">{currentUser?.email}</div>
             </div>
-            <button className="btn btn-secondary btn-sm">Change</button>
+            <button className="btn btn-secondary btn-sm" onClick={handleChangeEmail}>Change</button>
+          </div>
+
+          <div className="setting-item">
+            <div className="setting-info">
+              <div className="setting-label">Wallet Address</div>
+              <div className="setting-value">{currentUser?.walletAddress || 'Not connected'}</div>
+            </div>
+            <button className="btn btn-secondary btn-sm">Manage</button>
+          </div>
+
+          <div className="setting-item">
+            <div className="setting-info">
+              <div className="setting-label">Phone</div>
+              <div className="setting-value">{currentUser?.phone || 'Not added'}</div>
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={() => handleUpdateProfile('phone')}>Update</button>
+          </div>
+
+          <div className="setting-item">
+            <div className="setting-info">
+              <div className="setting-label">Company</div>
+              <div className="setting-value">{currentUser?.company || 'Not added'}</div>
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={() => handleUpdateProfile('company')}>Update</button>
           </div>
 
           <div className="setting-item">
@@ -60,7 +185,7 @@ const SettingsPage = ({ currentUser, navigateTo, toggleAuth }) => {
               <div className="setting-label">Password</div>
               <div className="setting-value">••••••••</div>
             </div>
-            <button className="btn btn-secondary btn-sm">Change</button>
+            <button className="btn btn-secondary btn-sm" onClick={handleChangePassword}>Change</button>
           </div>
 
           <div className="setting-item">
@@ -68,7 +193,7 @@ const SettingsPage = ({ currentUser, navigateTo, toggleAuth }) => {
               <div className="setting-label">Two-Factor Authentication</div>
               <div className="setting-value">Not enabled</div>
             </div>
-            <button className="btn btn-primary btn-sm">Enable</button>
+            <button className="btn btn-primary btn-sm" onClick={handleEnable2FA}>Enable</button>
           </div>
         </div>
       </div>

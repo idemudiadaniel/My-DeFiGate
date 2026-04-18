@@ -23,7 +23,7 @@ const AuthModal = ({ onAuthenticated, onShowToast }) => {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/user/login', {
+      const response = await fetch('/api/user/signin', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -41,14 +41,22 @@ const AuthModal = ({ onAuthenticated, onShowToast }) => {
         return;
       }
 
-      const data = await response.json();
+      const response_data = await response.json();
+      if (!response_data?.data?.user) {
+        onShowToast('Invalid server response', 'error');
+        setLoading(false);
+        return;
+      }
+
+      const { user, token, wallet } = response_data.data;
       onAuthenticated({
-        id: data.user.id,
-        name: data.user.name,
-        email: data.user.email,
-        walletAddress: data.user.walletAddress,
-        token: data.token,
+        id: user.id,
+        name: user.email,
+        email: user.email,
+        walletAddress: wallet?.address,
+        token: token,
       });
+      setLoading(false);
     } catch (error) {
       console.error('Sign in error:', error);
       onShowToast('Network error. Please try again.', 'error');
@@ -61,7 +69,7 @@ const AuthModal = ({ onAuthenticated, onShowToast }) => {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/user/register', {
+      const response = await fetch('/api/user/signup', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -69,8 +77,6 @@ const AuthModal = ({ onAuthenticated, onShowToast }) => {
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,
-          name: formData.name,
-          walletAddress: formData.walletAddress,
         }),
       });
 
@@ -81,14 +87,22 @@ const AuthModal = ({ onAuthenticated, onShowToast }) => {
         return;
       }
 
-      const data = await response.json();
+      const response_data = await response.json();
+      if (!response_data?.data?.user) {
+        onShowToast('Invalid server response', 'error');
+        setLoading(false);
+        return;
+      }
+
+      const { user, token, wallet } = response_data.data;
       onAuthenticated({
-        id: data.user.id,
-        name: data.user.name,
-        email: data.user.email,
-        walletAddress: data.user.walletAddress,
-        token: data.token,
+        id: user.id,
+        name: user.email,
+        email: user.email,
+        walletAddress: wallet?.address,
+        token: token,
       });
+      setLoading(false);
     } catch (error) {
       console.error('Sign up error:', error);
       onShowToast('Network error. Please try again.', 'error');
@@ -114,6 +128,7 @@ const AuthModal = ({ onAuthenticated, onShowToast }) => {
                 value={formData.name}
                 onChange={handleInputChange}
                 placeholder="John Doe"
+                autoComplete="name"
                 required
               />
             </div>
@@ -128,6 +143,7 @@ const AuthModal = ({ onAuthenticated, onShowToast }) => {
               value={formData.email}
               onChange={handleInputChange}
               placeholder="you@example.com"
+              autoComplete="email"
               required
             />
           </div>
@@ -142,6 +158,7 @@ const AuthModal = ({ onAuthenticated, onShowToast }) => {
                 value={formData.walletAddress}
                 onChange={handleInputChange}
                 placeholder="0x..."
+                autoComplete="off"
                 required
               />
             </div>
@@ -156,6 +173,7 @@ const AuthModal = ({ onAuthenticated, onShowToast }) => {
               value={formData.password}
               onChange={handleInputChange}
               placeholder="••••••••"
+              autoComplete="current-password"
               required
             />
           </div>

@@ -194,6 +194,7 @@ const TransferInternalPage = ({ currentUser, currentWallet, sendTokens, navigate
               placeholder="0.01"
               min="0.000001"
               step="0.000001"
+              autoComplete="off"
               required
             />
           </div>

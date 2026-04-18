@@ -113,7 +113,7 @@ function DashboardRefactored({ currentUser, currentWallet, navigateTo }) {
         <div className="user-status">
           <div className="status-item">
             <span className="status-label">Account</span>
-            <span className="status-value">{currentUser.email}</span>
+            <span className="status-value">{currentUser?.email || 'Not logged in'}</span>
           </div>
           {currentWallet && (
             <div className="status-item">

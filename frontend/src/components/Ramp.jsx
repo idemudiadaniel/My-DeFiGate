@@ -46,7 +46,7 @@ function Ramp({ currentUser, createOnramp, createOfframp }) {
             <form onSubmit={handleOnramp}>
               <div className="form-group">
                 <label htmlFor="onrampAmount">Amount (NGN)</label>
-                <input type="number" id="onrampAmount" name="amount" placeholder="e.g. 5000" min="100" required />
+                <input type="number" id="onrampAmount" name="amount" placeholder="e.g. 5000" min="100" autoComplete="off" required />
               </div>
               <div className="form-group">
                 <label htmlFor="onrampChannel">Payment Channel</label>
@@ -70,7 +70,7 @@ function Ramp({ currentUser, createOnramp, createOfframp }) {
             <form onSubmit={handleOfframp}>
               <div className="form-group">
                 <label htmlFor="offrampAmount">Amount (Crypto)</label>
-                <input type="number" id="offrampAmount" name="amount" placeholder="e.g. 10" step="0.01" min="0.01" required />
+                <input type="number" id="offrampAmount" name="amount" placeholder="e.g. 10" step="0.01" min="0.01" autoComplete="off" required />
               </div>
               <div className="form-group">
                 <label htmlFor="offrampToken">Token</label>

@@ -31,7 +31,7 @@ function Send({ currentUser, currentWallet, sendTokens }) {
           <div className="form-row">
             <div className="form-group">
               <label htmlFor="sendAmount">Amount</label>
-              <input type="number" id="sendAmount" name="amount" placeholder="0.00" step="0.0001" min="0" required />
+              <input type="number" id="sendAmount" name="amount" placeholder="0.00" step="0.0001" min="0" autoComplete="off" required />
             </div>
             <div className="form-group">
               <label>Chain</label>

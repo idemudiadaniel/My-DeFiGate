@@ -19,6 +19,7 @@ import TransferInternalPage from './pages/TransferInternalPage'
 import FinancesPage from './pages/FinancesPage'
 import HistoryPage from './pages/HistoryPage'
 import SettingsPage from './pages/SettingsPage'
+import SignupPage from './pages/SignupPage'
 
 const API = '';
 
@@ -77,9 +78,19 @@ function App() {
         return;
       }
 
-      setCurrentUser(data.user);
+      // Access data.data structure (not just data)
+      const userData = data.data?.user;
+      const token = data.data?.token;
+      
+      if (!userData) {
+        toast("Invalid server response", "error");
+        return;
+      }
+
+      setCurrentUser({ ...userData, token });
+      localStorage.setItem("authToken", token);
       setAuthModalOpen(false);
-      toast(`Welcome${authMode === "signup" ? "! Account created" : " back"}, ${data.user.email}`, "success");
+      toast(`Welcome${authMode === "signup" ? "! Account created" : " back"}, ${userData.email}`, "success");
     } catch (err) {
       toast(err.message, "error");
     }
@@ -250,27 +261,48 @@ function App() {
     <div className="app">
       {/* Top Navigation */}
       <TopNav 
-        currentUser={currentUser} 
-        isDark={isDark} 
+        user={currentUser} 
+        theme={isDark ? 'dark' : 'light'} 
         toggleTheme={toggleTheme} 
-        onProfileClick={() => !currentUser ? setAuthModalOpen(true) : toggleAuth()}
+        onLogout={() => !currentUser ? setAuthModalOpen(true) : toggleAuth()}
         backendStatus={backendStatus}
       />
 
       {/* Main Content */}
       <main className="main-content">
-        {!currentUser && (
+        {!currentUser && currentView === 'signup' && (
+          <SignupPage
+            onAuthenticated={(user) => {
+              setCurrentUser(user);
+              if (user.token) {
+                localStorage.setItem('authToken', user.token);
+              }
+              setCurrentView('dashboard');
+              toast(`Welcome! Account created for ${user.email}`, 'success');
+            }}
+            onShowToast={toast}
+            onCancel={() => setCurrentView('dashboard')}
+          />
+        )}
+
+        {!currentUser && currentView !== 'signup' && (
           <div className="auth-required">
             <div className="auth-card">
               <h1>Welcome to DeFiGate</h1>
               <p>Your gateway to DeFi in Africa</p>
-              <button className="btn btn-primary" onClick={() => setAuthModalOpen(true)}>
-                Sign In / Sign Up
+              <button className="btn btn-primary" onClick={() => setCurrentView('signup')}>
+                Create your profile
               </button>
+              <p className="auth-cta">
+                Already have an account?{' '}
+                <button className="link-btn" onClick={() => setAuthModalOpen(true)}>
+                  Sign in
+                </button>
+              </p>
             </div>
           </div>
         )}
-        
+
         {currentUser && (
           <>
             {currentView === 'dashboard' && <DashboardRefactored currentUser={currentUser} currentWallet={currentWallet} navigateTo={navigateTo} />}
@@ -303,11 +335,11 @@ function App() {
             <form onSubmit={handleAuth}>
               <div className="form-group">
                 <label htmlFor="email">Email</label>
-                <input type="email" id="email" name="email" required />
+                <input type="email" id="email" name="email" autoComplete="email" required />
               </div>
               <div className="form-group">
                 <label htmlFor="password">Password</label>
-                <input type="password" id="password" name="password" required />
+                <input type="password" id="password" name="password" autoComplete="current-password" required />
               </div>
               <button type="submit" className="btn btn-primary">
                 {authMode === "signin" ? "Sign In" : "Sign Up"}

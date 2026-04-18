@@ -117,6 +117,7 @@ const WithdrawBankPage = ({ currentUser, createOfframp, navigateTo }) => {
               placeholder="0.01"
               min="0.001"
               step="0.001"
+              autoComplete="off"
               required
             />
           </div>
