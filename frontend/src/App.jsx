@@ -327,6 +327,7 @@ function App() {
             {currentView === 'finances' && <FinancesPage currentUser={currentUser} currentWallet={currentWallet} navigateTo={navigateTo} />}
             {currentView === 'history' && <HistoryPage currentUser={currentUser} navigateTo={navigateTo} />}
             {currentView === 'settings' && <SettingsPage currentUser={currentUser} navigateTo={navigateTo} toggleAuth={toggleAuth} />}
+            {currentView === 'test-panel' && <TestPanel currentUser={currentUser} currentWallet={currentWallet} />}
           </>
         )}
       </main>

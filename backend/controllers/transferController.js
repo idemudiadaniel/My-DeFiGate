@@ -452,49 +452,114 @@ export const getTransferHistory = async (req, res) => {
 
 export const transfer = async (req, res) => {
   const senderId = req.user?.id;
-  const { recipientEmail, amount } = req.body;
+  const { recipientEmail, amount, requestReference, chain = "solana" } = req.body;
 
   if (!senderId) {
     return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
 
-  if (!recipientEmail || !amount || amount <= 0) {
-    return res.status(400).json({ ok: false, error: "Recipient email and valid amount required" });
+  if (chain !== "solana") {
+    return res.status(400).json({ ok: false, error: "Only Solana transfers are supported" });
   }
 
   const transferAmount = parseFloat(amount);
+  if (!recipientEmail || Number.isNaN(transferAmount) || transferAmount <= 0) {
+    return res.status(400).json({ ok: false, error: "Recipient email and positive amount are required" });
+  }
+
+  const normalizedRecipientEmail = recipientEmail.toLowerCase();
+
+  if (useInMemoryAuth) {
+    const sender = Array.from(inMemoryUsers.values()).find((u) => u.id === senderId);
+    const recipient = Array.from(inMemoryUsers.values()).find((u) => u.email === normalizedRecipientEmail);
+
+    if (!sender) {
+      return res.status(404).json({ ok: false, error: "Sender not found" });
+    }
+    if (!recipient) {
+      return res.status(404).json({ ok: false, error: "Recipient not found" });
+    }
+    if (sender.id === recipient.id) {
+      return res.status(400).json({ ok: false, error: "Cannot transfer to yourself" });
+    }
+    if ((sender.available_balance || 0) < transferAmount) {
+      return res.status(400).json({ ok: false, error: "Insufficient balance" });
+    }
+
+    sender.available_balance -= transferAmount;
+    recipient.available_balance = (recipient.available_balance || 0) + transferAmount;
+
+    const transaction = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`,
+      user_id: senderId,
+      type: 'transfer',
+      amount: transferAmount,
+      status: 'completed',
+      reference: requestReference || `transfer:${Date.now()}->${normalizedRecipientEmail}`,
+      tx_hash: `solana-transfer-${Date.now()}`,
+      created_at: new Date().toISOString(),
+    };
+
+    return res.json({
+      ok: true,
+      data: {
+        transactionId: transaction.id,
+        status: transaction.status,
+        message: "Transfer completed successfully",
+      },
+    });
+  }
+
+  const recipientResult = await pool.query(`SELECT id, email FROM users WHERE email = $1`, [normalizedRecipientEmail]);
+  if (recipientResult.rows.length === 0) {
+    return res.status(404).json({ ok: false, error: "Recipient not found" });
+  }
+
+  const recipientId = recipientResult.rows[0].id;
+  if (recipientId === senderId) {
+    return res.status(400).json({ ok: false, error: "Cannot transfer to yourself" });
+  }
+
+  if (requestReference) {
+    const existingTransaction = await Transaction.findOne({
+      where: {
+        user_id: senderId,
+        type: 'transfer',
+        reference: requestReference,
+      },
+    });
+
+    if (existingTransaction) {
+      return res.json({
+        ok: true,
+        data: {
+          transactionId: existingTransaction.id,
+          status: existingTransaction.status,
+          message: "Duplicate request ignored. Existing transfer returned.",
+        },
+      });
+    }
+  }
 
   const t = await sequelize.transaction();
 
   try {
-    // Get sender balance
-    const senderBalance = await Balance.findOne({ where: { user_id: senderId }, transaction: t });
-    if (!senderBalance || senderBalance.available_balance < transferAmount) {
+    const senderBalance = await Balance.findOne({ where: { user_id: senderId }, transaction: t, lock: true });
+    if (!senderBalance || Number(senderBalance.available_balance) < transferAmount) {
       await t.rollback();
       return res.status(400).json({ ok: false, error: "Insufficient balance" });
     }
 
-    // Get recipient
-    const recipientResult = await pool.query(`SELECT id FROM users WHERE email = $1`, [recipientEmail]);
-    if (recipientResult.rows.length === 0) {
-      await t.rollback();
-      return res.status(404).json({ ok: false, error: "Recipient not found" });
-    }
-    const recipientId = recipientResult.rows[0].id;
-
-    // Deduct from sender
     await Balance.decrement('available_balance', { by: transferAmount, where: { user_id: senderId }, transaction: t });
-
-    // Credit to receiver
     await Balance.increment('available_balance', { by: transferAmount, where: { user_id: recipientId }, transaction: t });
 
-    // Create transaction record
     const transaction = await Transaction.create({
       user_id: senderId,
       type: 'transfer',
       amount: transferAmount,
       status: 'completed',
-      reference: `transfer to ${recipientEmail}`,
+      reference: requestReference || `transfer:${Date.now()}->${normalizedRecipientEmail}`,
+      tx_hash: `solana-transfer-${Date.now()}`,
     }, { transaction: t });
 
     await t.commit();
@@ -503,6 +568,7 @@ export const transfer = async (req, res) => {
       ok: true,
       data: {
         transactionId: transaction.id,
+        status: transaction.status,
         message: "Transfer completed successfully",
       },
     });
@@ -513,52 +579,106 @@ export const transfer = async (req, res) => {
   }
 };
 
+function simulateSolanaWithdrawal(toAddress, amount) {
+  const txHash = `solana-withdraw-${Date.now()}`;
+  return Promise.resolve({ success: true, txHash });
+}
+
 export const withdraw = async (req, res) => {
   const userId = req.user?.id;
-  const { amount, toAddress } = req.body;
+  const { amount, toAddress, chain = "solana" } = req.body;
 
   if (!userId) {
     return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
 
-  if (!amount || amount <= 0 || !toAddress) {
-    return res.status(400).json({ ok: false, error: "Valid amount and address required" });
+  if (chain !== "solana") {
+    return res.status(400).json({ ok: false, error: "Only Solana withdrawals are supported" });
   }
 
   const withdrawAmount = parseFloat(amount);
+  if (!withdrawAmount || withdrawAmount <= 0 || !toAddress) {
+    return res.status(400).json({ ok: false, error: "Valid amount and Solana address required" });
+  }
+
+  if (useInMemoryAuth) {
+    const user = Array.from(inMemoryUsers.values()).find((u) => u.id === userId);
+    if (!user) {
+      return res.status(404).json({ ok: false, error: "User not found" });
+    }
+    if ((user.available_balance || 0) < withdrawAmount) {
+      return res.status(400).json({ ok: false, error: "Insufficient balance" });
+    }
+
+    user.available_balance -= withdrawAmount;
+    const transaction = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`,
+      user_id: userId,
+      type: 'withdrawal',
+      amount: withdrawAmount,
+      status: 'completed',
+      reference: `withdrawal to ${toAddress}`,
+      tx_hash: `solana-withdraw-${Date.now()}`,
+      created_at: new Date().toISOString(),
+    };
+
+    return res.json({
+      ok: true,
+      data: {
+        transactionId: transaction.id,
+        status: transaction.status,
+        message: "Withdrawal completed successfully",
+      },
+    });
+  }
 
   const t = await sequelize.transaction();
 
+  let transaction;
   try {
-    const balance = await Balance.findOne({ where: { user_id: userId }, transaction: t });
-    if (!balance || balance.available_balance < withdrawAmount) {
+    const balance = await Balance.findOne({ where: { user_id: userId }, transaction: t, lock: true });
+    if (!balance || Number(balance.available_balance) < withdrawAmount) {
       await t.rollback();
       return res.status(400).json({ ok: false, error: "Insufficient balance" });
     }
 
-    // Deduct
-    await Balance.decrement('available_balance', { by: withdrawAmount, where: { user_id: userId }, transaction: t });
-
-    // Create transaction
-    const transaction = await Transaction.create({
+    transaction = await Transaction.create({
       user_id: userId,
       type: 'withdrawal',
       amount: withdrawAmount,
-      status: 'completed', // Mock for now
+      status: 'pending',
       reference: `withdrawal to ${toAddress}`,
     }, { transaction: t });
 
+    await Balance.decrement('available_balance', { by: withdrawAmount, where: { user_id: userId }, transaction: t });
     await t.commit();
+
+    const result = await simulateSolanaWithdrawal(toAddress, withdrawAmount);
+
+    if (!result.success) {
+      const refundTransaction = await sequelize.transaction();
+      await Balance.increment('available_balance', { by: withdrawAmount, where: { user_id: userId }, transaction: refundTransaction });
+      await transaction.update({ status: 'failed', tx_hash: result.txHash || null }, { transaction: refundTransaction });
+      await refundTransaction.commit();
+
+      return res.status(500).json({ ok: false, error: "Withdrawal broadcast failed", details: result.message || "Transaction failed" });
+    }
+
+    await transaction.update({ status: 'completed', tx_hash: result.txHash }, { transaction: null });
 
     res.json({
       ok: true,
       data: {
         transactionId: transaction.id,
+        status: 'completed',
+        tx_hash: result.txHash,
         message: "Withdrawal completed successfully",
       },
     });
   } catch (err) {
-    await t.rollback();
+    if (t.finished !== 'commit') {
+      await t.rollback();
+    }
     console.error("withdraw error", err);
     res.status(500).json({ ok: false, error: "Withdrawal failed" });
   }

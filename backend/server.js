@@ -40,6 +40,7 @@ import rampRoutes from "./routes/ramp.js";
 import walletRoutes from "./routes/wallet.js";
 import userRoutes from "./routes/user.js";
 import transferRoutes from "./routes/transfer.js";
+import testRoutes from "./routes/test.js";
 import './services/depositDetector.js';
 
 // Mount under /mento for backward compat and /ramp for new routes
@@ -48,6 +49,7 @@ app.use("/ramp", rampRoutes);
 app.use("/wallet", walletRoutes);
 app.use("/user", userRoutes);
 app.use("/transfer", transferRoutes);
+app.use("/test", testRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {

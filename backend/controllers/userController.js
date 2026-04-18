@@ -46,7 +46,7 @@ export const signup = async (req, res) => {
   }
 
   const verificationToken = generateVerificationToken();
-  const preferredChain = "celo";
+  const preferredChain = "solana";
 
   if (useInMemoryAuth) {
     if (inMemoryUsers.has(normalizedEmail)) {
@@ -186,7 +186,7 @@ export const signin = async (req, res) => {
 
     let wallet;
     try {
-      wallet = await ensureUserWallet(user.id, user.email, user.preferred_chain || "celo");
+      wallet = await ensureUserWallet(user.id, user.email, user.preferred_chain || "solana");
     } catch (err) {
       console.error("inMemory signin wallet error", err?.message || err);
       wallet = { status: "disconnected", error: err?.message || "Wallet lookup failed" };
@@ -234,7 +234,7 @@ export const signin = async (req, res) => {
 
     let wallet;
     try {
-      wallet = await ensureUserWallet(user.id, user.email, user.preferred_chain || "celo");
+      wallet = await ensureUserWallet(user.id, user.email, user.preferred_chain || "solana");
     } catch (err) {
       console.error("DB signin wallet error", err?.message || err);
       wallet = { status: "disconnected", error: err?.message || "Wallet lookup failed" };
@@ -593,10 +593,18 @@ export const getMe = async (req, res) => {
 
   let wallet;
   try {
-    wallet = await ensureUserWallet(fullUser.id, fullUser.email, "ethereum");
+    wallet = await ensureUserWallet(fullUser.id, fullUser.email, "solana");
   } catch (err) {
     console.error("getMe wallet error", err?.message || err);
     wallet = { status: "disconnected", error: err?.message || "Wallet lookup failed" };
+  }
+
+  let available_balance = 0;
+  if (!useInMemoryAuth) {
+    const balanceResult = await pool.query(`SELECT available_balance FROM balances WHERE user_id = $1`, [fullUser.id]);
+    available_balance = Number(balanceResult.rows[0]?.available_balance || 0);
+  } else {
+    available_balance = fullUser.available_balance || 0;
   }
 
   res.json({
@@ -606,6 +614,7 @@ export const getMe = async (req, res) => {
         id: fullUser.id,
         email: fullUser.email,
         balance_usd: fullUser.balance_usd,
+        available_balance,
         is_verified: fullUser.is_verified,
       },
       wallet,

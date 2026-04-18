@@ -23,15 +23,16 @@ function privyHeaders() {
   };
 }
 
-async function createPrivyWallet(chainType = "ethereum") {
+async function createPrivyWallet(chainType = "solana") {
   if (!isPrivyEnabled) {
     throw new Error("Privy credentials not configured");
   }
 
-  // Map unsupported chains to supported ones
-  const privyChainType = chainType === "celo" ? "ethereum" : chainType;
+  if (chainType !== "solana") {
+    throw new Error("Only Solana wallets are supported");
+  }
 
-  const body = { chain_type: privyChainType };
+  const body = { chain_type: chainType };
   const r = await axios.post(`${PRIVY_BASE}/v1/wallets`, body, {
     headers: privyHeaders(),
   });
@@ -47,7 +48,7 @@ async function getWalletByUserIdAndChain(userId, chainType) {
   return result.rows[0] || null;
 }
 
-async function saveWallet(userId, privyWallet, chainType = "ethereum") {
+async function saveWallet(userId, privyWallet, chainType = "solana") {
   const providerWalletId = privyWallet.id || null;
   const address =
     (privyWallet.accounts && privyWallet.accounts[0]?.address) ||
@@ -70,9 +71,13 @@ async function saveWallet(userId, privyWallet, chainType = "ethereum") {
   return insert.rows[0];
 }
 
-export async function ensureUserWallet(userId, email, chainType = "ethereum") {
+export async function ensureUserWallet(userId, email, chainType = "solana") {
   if (!userId || !email) {
     throw new Error("Missing user ID or email for wallet creation");
+  }
+
+  if (chainType !== "solana") {
+    throw new Error("Only Solana wallets are supported");
   }
 
   const key = `${userId}:${chainType}`;
@@ -165,9 +170,13 @@ export async function ensureUserWallet(userId, email, chainType = "ethereum") {
 export const createEmbeddedWallet = async (req, res) => {
   const userId = req.user?.id || req.body.userId;
   const email = req.user?.email || req.body.email;
-  const chainType = req.body.chainType || "ethereum";
+  const chainType = req.body.chainType || "solana";
   if (!userId || !email) {
     return res.status(400).json({ ok: false, error: "Missing userId or email" });
+  }
+
+  if (chainType !== "solana") {
+    return res.status(400).json({ ok: false, error: "Only Solana wallets are supported" });
   }
 
   try {
@@ -191,17 +200,23 @@ export const sendTxToAddress = async (req, res) => {
       .json({ ok: false, error: "walletId, toAddress, and amount are required" });
   }
 
+  if (chain !== "solana") {
+    return res
+      .status(400)
+      .json({ ok: false, error: "Only Solana transactions are supported" });
+  }
+
   try {
-    // Build an EVM transaction request for Privy
+    // Build a Solana transaction request for Privy
     const caip2 = chainToCaip2(chain);
     const txBody = {
-      chain_type: chain === "solana" ? "solana" : "ethereum", // Use actual chain type
-      method: chain === "solana" ? "solana_signAndSendTransaction" : "eth_sendTransaction",
+      chain_type: "solana",
+      method: "solana_signAndSendTransaction",
       caip2,
       params: {
         transaction: {
           to: toAddress,
-          value: Math.floor(amount * 1e18),
+          value: Math.floor(amount * 1e9),
         },
       },
     };
@@ -256,8 +271,9 @@ function chainToCaip2(chain) {
     polygon: "eip155:137",
     arbitrum: "eip155:42161",
     optimism: "eip155:10",
+    solana: "solana:mainnet",
   };
-  return map[chain] || "eip155:1";
+  return map[chain] || "solana:mainnet";
 }
 
 // Minimal ABI encoding for ERC-20 transfer(address,uint256)
