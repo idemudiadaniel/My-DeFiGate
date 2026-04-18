@@ -8,24 +8,12 @@ import { respondError, respondSuccess } from "../utils/response.js";
 import Balance from "../models/Balance.js";
 import Transaction from "../models/Transaction.js";
 
-const useInMemoryAuth = !process.env.DATABASE_URL;
-export const inMemoryUsers = new Map();
-
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
 function generateVerificationToken() {
   return crypto.randomBytes(24).toString("hex");
-}
-
-async function findInMemoryUserByToken(token) {
-  for (const user of inMemoryUsers.values()) {
-    if (user.email_verification_token === token) {
-      return user;
-    }
-  }
-  return null;
 }
 
 async function getWalletForUser(userId) {
@@ -48,56 +36,6 @@ export const signup = async (req, res) => {
   const verificationToken = generateVerificationToken();
   const preferredChain = "solana";
 
-  if (useInMemoryAuth) {
-    if (inMemoryUsers.has(normalizedEmail)) {
-      return respondError(res, 409, "User already exists with this email", false);
-    }
-
-    const hash = await bcrypt.hash(password, 10);
-    const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
-    const user = {
-      id,
-      email: normalizedEmail,
-      name: name || null,
-      walletAddress: walletAddress || null,
-      phone: phone || null,
-      company: company || null,
-      password_hash: hash,
-      balance_usd: 100.0,
-      available_balance: 100, // For testing in in-memory
-      is_verified: true,
-      kyc_status: "pending",
-      email_verification_token: null,
-      preferred_chain: preferredChain,
-    };
-    inMemoryUsers.set(normalizedEmail, user);
-
-    let wallet;
-    try {
-      wallet = await ensureUserWallet(id, normalizedEmail, preferredChain);
-    } catch (err) {
-      console.error("inMemory signup wallet error", err?.message || err);
-      wallet = { status: "disconnected", error: err?.message || "Wallet create failed" };
-    }
-
-    const token = generateToken(user);
-    return respondSuccess(res, {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        walletAddress: user.walletAddress,
-        phone: user.phone,
-        company: user.company,
-        available_balance: user.available_balance,
-        is_verified: user.is_verified,
-        kyc_status: user.kyc_status,
-      },
-      wallet,
-      token,
-    }, "Account created and authenticated");
-  }
-
   try {
     const hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
@@ -116,11 +54,11 @@ export const signup = async (req, res) => {
     );
     user.is_verified = true;
 
-    // Create balance record
+    // Create balance record with test net balance
     try {
       await Balance.create({
         user_id: user.id,
-        available_balance: 0,
+        available_balance: 100.0, // Test net balance for transaction testing
       });
     } catch (err) {
       console.error("Balance creation error", err);
@@ -173,47 +111,9 @@ export const signin = async (req, res) => {
     return respondError(res, 400, "Email and password required", false);
   }
 
-  if (useInMemoryAuth) {
-    const user = inMemoryUsers.get(normalizedEmail);
-    if (!user) {
-      return respondError(res, 404, "Account not found. Please sign up first.", false);
-    }
-
-    const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) {
-      return respondError(res, 401, "Invalid credentials", false);
-    }
-
-    let wallet;
-    try {
-      wallet = await ensureUserWallet(user.id, user.email, user.preferred_chain || "solana");
-    } catch (err) {
-      console.error("inMemory signin wallet error", err?.message || err);
-      wallet = { status: "disconnected", error: err?.message || "Wallet lookup failed" };
-    }
-
-    const token = generateToken(user);
-    return respondSuccess(res, {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        walletAddress: user.walletAddress,
-        phone: user.phone,
-        company: user.company,
-        available_balance: user.available_balance,
-        balance_usd: user.balance_usd,
-        is_verified: user.is_verified,
-        kyc_status: user.kyc_status,
-      },
-      wallet,
-      token,
-    });
-  }
-
   try {
     const result = await pool.query(
-      `SELECT id, email, name, wallet_address, phone, company, password_hash, balance_usd, is_verified, kyc_status, preferred_chain
+      `SELECT id, email, name, wallet_address, phone, company, password_hash, is_verified, kyc_status, preferred_chain
        FROM users WHERE email = $1`,
       [normalizedEmail]
     );
@@ -250,7 +150,6 @@ export const signin = async (req, res) => {
         phone: user.phone,
         company: user.company,
         available_balance: available_balance,
-        balance_usd: user.balance_usd,
         is_verified: user.is_verified,
         kyc_status: user.kyc_status,
       },
@@ -267,23 +166,6 @@ export const verifyEmail = async (req, res) => {
   const { token } = req.body;
   if (!token) {
     return respondError(res, 400, "Verification token is required", false);
-  }
-
-  if (useInMemoryAuth) {
-    const user = await findInMemoryUserByToken(token);
-    if (!user) {
-      return respondError(res, 404, "Verification token invalid or expired", false);
-    }
-    user.is_verified = true;
-    user.email_verification_token = null;
-    user.email_verified_at = new Date().toISOString();
-    return respondSuccess(res, {
-      user: {
-        id: user.id,
-        email: user.email,
-        is_verified: user.is_verified,
-      },
-    }, "Email verified successfully");
   }
 
   try {
@@ -318,20 +200,6 @@ export const resendVerification = async (req, res) => {
     return respondError(res, 400, "Email is required", false);
   }
 
-  if (useInMemoryAuth) {
-    const user = inMemoryUsers.get(normalizedEmail);
-    if (!user) {
-      return respondError(res, 404, "User not found", false);
-    }
-    if (user.is_verified) {
-      return respondError(res, 400, "Email is already verified", false);
-    }
-    const newToken = generateVerificationToken();
-    user.email_verification_token = newToken;
-    const emailResponse = await sendVerificationEmail(normalizedEmail, newToken);
-    return respondSuccess(res, { verificationEmail: emailResponse.verificationUrl }, "Verification email resent.");
-  }
-
   try {
     const userResult = await pool.query(
       `SELECT id, email, is_verified FROM users WHERE email = $1`,
@@ -362,89 +230,45 @@ export const signout = async (req, res) => {
 };
 
 export const topup = async (req, res) => {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({ ok: false, error: "Not authenticated" });
-  }
-
   const { amount } = req.body;
-  const topupAmount = parseFloat(amount);
+  const userId = req.user.id;
 
-  if (!topupAmount || topupAmount <= 0 || topupAmount > 1000) {
-    return res.status(400).json({ ok: false, error: "Invalid amount (1-1000 USD)" });
+  if (!amount || amount <= 0) {
+    return respondError(res, 400, "Valid amount is required", false);
   }
 
   try {
-    if (useInMemoryAuth) {
-      const fullUser = inMemoryUsers.get(normalizeEmail(user.email));
-      if (!fullUser) {
-        return res.status(401).json({ ok: false, error: "User not found" });
-      }
-      if (fullUser.balance_usd === undefined) fullUser.balance_usd = 100.00;
-      fullUser.balance_usd += topupAmount;
-      return res.json({
-        ok: true,
-        user: {
-          id: fullUser.id,
-          email: fullUser.email,
-          balance_usd: fullUser.balance_usd,
-          is_verified: fullUser.is_verified,
-        },
-        message: `Topped up $${topupAmount.toFixed(2)}`,
-      });
-    }
-
-    // DB mode
-    const result = await pool.query(
-      `UPDATE users SET balance_usd = balance_usd + $1 WHERE id = $2
-       RETURNING id, email, balance_usd, is_verified`,
-      [topupAmount, user.id]
+    await pool.query('BEGIN');
+    const balanceResult = await pool.query(
+      `SELECT balance FROM balances WHERE user_id = $1 FOR UPDATE`,
+      [userId]
     );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ ok: false, error: "User not found" });
+    if (balanceResult.rows.length === 0) {
+      await pool.query('ROLLBACK');
+      return respondError(res, 404, "Balance not found", false);
     }
-
-    const updatedUser = result.rows[0];
-    res.json({
-      ok: true,
-      user: {
-        id: updatedUser.id,
-        email: updatedUser.email,
-        balance_usd: updatedUser.balance_usd,
-        is_verified: updatedUser.is_verified,
-      },
-      message: `Topped up $${topupAmount.toFixed(2)}`,
-    });
+    const currentBalance = parseFloat(balanceResult.rows[0].balance);
+    const newBalance = currentBalance + parseFloat(amount);
+    await pool.query(
+      `UPDATE balances SET balance = $1 WHERE user_id = $2`,
+      [newBalance, userId]
+    );
+    await pool.query(
+      `INSERT INTO transactions (user_id, type, amount, balance_after, description) VALUES ($1, $2, $3, $4, $5)`,
+      [userId, 'topup', amount, newBalance, 'Test topup']
+    );
+    await pool.query('COMMIT');
+    return respondSuccess(res, { balance: newBalance }, "Topup successful");
   } catch (err) {
+    await pool.query('ROLLBACK');
     console.error("topup error", err);
-    res.status(500).json({ ok: false, error: "Topup failed" });
+    return respondError(res, 500, "Unable to process topup", true, err.message);
   }
 };
 
 export const updateProfile = async (req, res) => {
   const user = req.user;
   const { name, phone, company } = req.body;
-
-  if (useInMemoryAuth) {
-    const fullUser = inMemoryUsers.get(normalizeEmail(user.email));
-    if (!fullUser) {
-      return respondError(res, 401, "User not found", false);
-    }
-    if (name !== undefined) fullUser.name = name;
-    if (phone !== undefined) fullUser.phone = phone;
-    if (company !== undefined) fullUser.company = company;
-    return respondSuccess(res, {
-      user: {
-        id: fullUser.id,
-        email: fullUser.email,
-        name: fullUser.name,
-        walletAddress: fullUser.walletAddress,
-        phone: fullUser.phone,
-        company: fullUser.company,
-      },
-    }, "Profile updated");
-  }
 
   try {
     const result = await pool.query(
@@ -483,19 +307,6 @@ export const changePassword = async (req, res) => {
     return respondError(res, 400, "Current password and new password (min 6 chars) required", false);
   }
 
-  if (useInMemoryAuth) {
-    const fullUser = inMemoryUsers.get(normalizeEmail(user.email));
-    if (!fullUser) {
-      return respondError(res, 401, "User not found", false);
-    }
-    const valid = await bcrypt.compare(currentPassword, fullUser.password_hash);
-    if (!valid) {
-      return respondError(res, 401, "Current password incorrect", false);
-    }
-    fullUser.password_hash = await bcrypt.hash(newPassword, 10);
-    return respondSuccess(res, {}, "Password changed");
-  }
-
   try {
     const result = await pool.query(
       `SELECT password_hash FROM users WHERE id = $1`,
@@ -528,15 +339,6 @@ export const enable2FA = async (req, res) => {
   const user = req.user;
 
   // For simplicity, just set a flag. In real app, integrate with 2FA library.
-  if (useInMemoryAuth) {
-    const fullUser = inMemoryUsers.get(normalizeEmail(user.email));
-    if (!fullUser) {
-      return respondError(res, 401, "User not found", false);
-    }
-    fullUser.two_fa_enabled = true;
-    return respondSuccess(res, { two_fa_enabled: true }, "2FA enabled");
-  }
-
   try {
     await pool.query(
       `UPDATE users SET two_fa_enabled = true, updated_at = NOW() WHERE id = $1`,

@@ -13,21 +13,24 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+// Require PostgreSQL for all environments
 if (!process.env.DATABASE_URL) {
-  console.warn("WARNING: DATABASE_URL is not set. Using in-memory fallback for development.");
-} else {
-  // Initialize Sequelize if DATABASE_URL is set
-  (async () => {
-    try {
-      await sequelize.authenticate();
-      console.log("✅ Sequelize database connected");
-      await sequelize.sync({ alter: process.env.NODE_ENV === "development" });
-      console.log("✅ Sequelize models synchronized");
-    } catch (err) {
-      console.error("❌ Sequelize initialization error:", err.message);
-    }
-  })();
+  console.error("❌ DATABASE_URL is required. Please set it to a PostgreSQL connection string.");
+  process.exit(1);
 }
+
+// Initialize Sequelize
+(async () => {
+  try {
+    await sequelize.authenticate();
+    console.log("✅ PostgreSQL database connected");
+    await sequelize.sync({ alter: process.env.NODE_ENV === "development" });
+    console.log("✅ Sequelize models synchronized");
+  } catch (err) {
+    console.error("❌ PostgreSQL connection failed:", err.message);
+    process.exit(1);
+  }
+})();
 
 app.use(cors());
 app.use(bodyParser.json());
