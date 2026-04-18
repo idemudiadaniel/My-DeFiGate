@@ -4,7 +4,8 @@ import pool from "../db.js";
 import { generateToken } from "../middleware/auth.js";
 import { ensureUserWallet } from "./walletController.js";
 import { sendVerificationEmail } from "../services/emailService.js";
-import { respondError, respondSuccess } from "../utils/response.js";
+import Balance from "../models/Balance.js";
+import Transaction from "../models/Transaction.js";
 
 const useInMemoryAuth = !process.env.DATABASE_URL;
 export const inMemoryUsers = new Map();
@@ -62,6 +63,7 @@ export const signup = async (req, res) => {
       company: company || null,
       password_hash: hash,
       balance_usd: 100.0,
+      available_balance: 0,
       is_verified: true,
       kyc_status: "pending",
       email_verification_token: null,
@@ -86,6 +88,7 @@ export const signup = async (req, res) => {
         walletAddress: user.walletAddress,
         phone: user.phone,
         company: user.company,
+        available_balance: user.available_balance,
         is_verified: user.is_verified,
         kyc_status: user.kyc_status,
       },
@@ -111,6 +114,17 @@ export const signup = async (req, res) => {
       [user.id]
     );
     user.is_verified = true;
+
+    // Create balance record
+    try {
+      await Balance.create({
+        user_id: user.id,
+        available_balance: 0,
+      });
+    } catch (err) {
+      console.error("Balance creation error", err);
+      // Continue, but log
+    }
 
     let wallet;
     try {
@@ -186,6 +200,7 @@ export const signin = async (req, res) => {
         walletAddress: user.walletAddress,
         phone: user.phone,
         company: user.company,
+        available_balance: user.available_balance,
         balance_usd: user.balance_usd,
         is_verified: user.is_verified,
         kyc_status: user.kyc_status,
@@ -212,6 +227,10 @@ export const signin = async (req, res) => {
       return respondError(res, 401, "Invalid credentials", false);
     }
 
+    // Get balance
+    const balanceResult = await pool.query(`SELECT available_balance FROM balances WHERE user_id = $1`, [user.id]);
+    const available_balance = balanceResult.rows[0]?.available_balance || 0;
+
     let wallet;
     try {
       wallet = await ensureUserWallet(user.id, user.email, user.preferred_chain || "celo");
@@ -229,6 +248,7 @@ export const signin = async (req, res) => {
         walletAddress: user.wallet_address,
         phone: user.phone,
         company: user.company,
+        available_balance: available_balance,
         balance_usd: user.balance_usd,
         is_verified: user.is_verified,
         kyc_status: user.kyc_status,
@@ -525,6 +545,22 @@ export const enable2FA = async (req, res) => {
   } catch (err) {
     console.error("enable2FA error", err);
     return respondError(res, 500, "2FA enable failed", true, err.message);
+  }
+};
+
+export const getTransactions = async (req, res) => {
+  const user = req.user;
+
+  try {
+    const transactions = await Transaction.findAll({
+      where: { user_id: user.id },
+      order: [['created_at', 'DESC']],
+    });
+
+    return respondSuccess(res, { transactions }, "Transactions retrieved");
+  } catch (err) {
+    console.error("getTransactions error", err);
+    return respondError(res, 500, "Failed to retrieve transactions", true, err.message);
   }
 };
 

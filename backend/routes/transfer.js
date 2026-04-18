@@ -4,10 +4,10 @@ import * as transfer from "../controllers/transferController.js";
 
 const router = express.Router();
 
-router.post("/lookup", transfer.lookupRecipient);
+router.post("/", authenticate, transfer.transfer);
 router.post("/initiate", authenticate, transfer.initiateTransfer);
 router.post("/confirm", authenticate, transfer.confirmTransfer);
 router.get("/history", authenticate, transfer.getTransferHistory);
-router.get("/pending", authenticate, transfer.getPendingTransfers);
+router.post("/withdraw", authenticate, transfer.withdraw);
 
 export default router;

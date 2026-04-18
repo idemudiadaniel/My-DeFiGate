@@ -40,6 +40,7 @@ import rampRoutes from "./routes/ramp.js";
 import walletRoutes from "./routes/wallet.js";
 import userRoutes from "./routes/user.js";
 import transferRoutes from "./routes/transfer.js";
+import './services/depositDetector.js';
 
 // Mount under /mento for backward compat and /ramp for new routes
 app.use("/mento", rampRoutes);

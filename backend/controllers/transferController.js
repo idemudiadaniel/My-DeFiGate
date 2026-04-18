@@ -3,6 +3,9 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import dotenv from "dotenv";
 import { inMemoryUsers } from "./userController.js";
+import sequelize from "../config/database.js";
+import Balance from "../models/Balance.js";
+import Transaction from "../models/Transaction.js";
 dotenv.config();
 
 const useInMemoryAuth = !process.env.DATABASE_URL;
@@ -444,6 +447,120 @@ export const getTransferHistory = async (req, res) => {
   } catch (err) {
     console.error("getTransferHistory error", err);
     res.status(500).json({ ok: false, error: "Failed to retrieve history" });
+  }
+};
+
+export const transfer = async (req, res) => {
+  const senderId = req.user?.id;
+  const { recipientEmail, amount } = req.body;
+
+  if (!senderId) {
+    return res.status(401).json({ ok: false, error: "Not authenticated" });
+  }
+
+  if (!recipientEmail || !amount || amount <= 0) {
+    return res.status(400).json({ ok: false, error: "Recipient email and valid amount required" });
+  }
+
+  const transferAmount = parseFloat(amount);
+
+  const t = await sequelize.transaction();
+
+  try {
+    // Get sender balance
+    const senderBalance = await Balance.findOne({ where: { user_id: senderId }, transaction: t });
+    if (!senderBalance || senderBalance.available_balance < transferAmount) {
+      await t.rollback();
+      return res.status(400).json({ ok: false, error: "Insufficient balance" });
+    }
+
+    // Get recipient
+    const recipientResult = await pool.query(`SELECT id FROM users WHERE email = $1`, [recipientEmail]);
+    if (recipientResult.rows.length === 0) {
+      await t.rollback();
+      return res.status(404).json({ ok: false, error: "Recipient not found" });
+    }
+    const recipientId = recipientResult.rows[0].id;
+
+    // Deduct from sender
+    await Balance.decrement('available_balance', { by: transferAmount, where: { user_id: senderId }, transaction: t });
+
+    // Credit to receiver
+    await Balance.increment('available_balance', { by: transferAmount, where: { user_id: recipientId }, transaction: t });
+
+    // Create transaction record
+    const transaction = await Transaction.create({
+      user_id: senderId,
+      type: 'transfer',
+      amount: transferAmount,
+      status: 'completed',
+      reference: `transfer to ${recipientEmail}`,
+    }, { transaction: t });
+
+    await t.commit();
+
+    res.json({
+      ok: true,
+      data: {
+        transactionId: transaction.id,
+        message: "Transfer completed successfully",
+      },
+    });
+  } catch (err) {
+    await t.rollback();
+    console.error("transfer error", err);
+    res.status(500).json({ ok: false, error: "Transfer failed" });
+  }
+};
+
+export const withdraw = async (req, res) => {
+  const userId = req.user?.id;
+  const { amount, toAddress } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ ok: false, error: "Not authenticated" });
+  }
+
+  if (!amount || amount <= 0 || !toAddress) {
+    return res.status(400).json({ ok: false, error: "Valid amount and address required" });
+  }
+
+  const withdrawAmount = parseFloat(amount);
+
+  const t = await sequelize.transaction();
+
+  try {
+    const balance = await Balance.findOne({ where: { user_id: userId }, transaction: t });
+    if (!balance || balance.available_balance < withdrawAmount) {
+      await t.rollback();
+      return res.status(400).json({ ok: false, error: "Insufficient balance" });
+    }
+
+    // Deduct
+    await Balance.decrement('available_balance', { by: withdrawAmount, where: { user_id: userId }, transaction: t });
+
+    // Create transaction
+    const transaction = await Transaction.create({
+      user_id: userId,
+      type: 'withdrawal',
+      amount: withdrawAmount,
+      status: 'completed', // Mock for now
+      reference: `withdrawal to ${toAddress}`,
+    }, { transaction: t });
+
+    await t.commit();
+
+    res.json({
+      ok: true,
+      data: {
+        transactionId: transaction.id,
+        message: "Withdrawal completed successfully",
+      },
+    });
+  } catch (err) {
+    await t.rollback();
+    console.error("withdraw error", err);
+    res.status(500).json({ ok: false, error: "Withdrawal failed" });
   }
 };
 
