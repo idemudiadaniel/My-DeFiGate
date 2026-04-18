@@ -101,7 +101,6 @@ export async function ensureUserWallet(userId, email, chainType = "solana") {
           status: "disconnected",
           created_at: new Date().toISOString(),
         };
-        // do not persist when no DB wallet endpoint expected
         return wallet;
       }
 
@@ -110,7 +109,6 @@ export async function ensureUserWallet(userId, email, chainType = "solana") {
       return { ...wallet, status: "connected", metadata: privyWallet };
     } catch (err) {
       console.error("DB wallet error, falling back to in-memory", err?.message || err);
-      // Fall through to in-memory
     }
   }
 
@@ -122,9 +120,9 @@ export async function ensureUserWallet(userId, email, chainType = "solana") {
   if (!isPrivyEnabled) {
     const wallet = {
       id: key,
+      address: `sol_${userId.substring(0, 8).toUpperCase()}`,
       provider: "local",
       provider_wallet_id: null,
-      address: null,
       chain: chainType,
       status: "disconnected",
       created_at: new Date().toISOString(),
@@ -133,12 +131,11 @@ export async function ensureUserWallet(userId, email, chainType = "solana") {
     return wallet;
   }
 
-  // For different chains, we'll create separate wallet records but may reuse Privy wallet
-  // For simplicity, let's create a new Privy wallet for each chain request
+  // For Privy with different chains, we create a new Privy wallet
   try {
     const privyWallet = await createPrivyWallet(chainType);
     const wallet = {
-      id: `${privyWallet.id}_${chainType}`, // Make ID unique per chain
+      id: `${privyWallet.id}_${chainType}`,
       provider: "privy",
       provider_wallet_id: privyWallet.id,
       address: privyWallet.accounts?.[0]?.address || privyWallet.address || null,
@@ -153,9 +150,9 @@ export async function ensureUserWallet(userId, email, chainType = "solana") {
     console.error("ensureUserWallet privy error", err?.response?.data || err?.message || err);
     const wallet = {
       id: key,
+      address: `sol_${userId.substring(0, 8).toUpperCase()}`,
       provider: "local",
       provider_wallet_id: null,
-      address: null,
       chain: chainType,
       status: "disconnected",
       created_at: new Date().toISOString(),

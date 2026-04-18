@@ -20,6 +20,7 @@ import FinancesPage from './pages/FinancesPage'
 import HistoryPage from './pages/HistoryPage'
 import SettingsPage from './pages/SettingsPage'
 import SignupPage from './pages/SignupPage'
+import TestPanel from './pages/TestPanel'
 
 const API = '';
 

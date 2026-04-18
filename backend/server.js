@@ -42,7 +42,6 @@ import userRoutes from "./routes/user.js";
 import transferRoutes from "./routes/transfer.js";
 import testRoutes from "./routes/test.js";
 import './services/depositDetector.js';
-
 // Mount under /mento for backward compat and /ramp for new routes
 app.use("/mento", rampRoutes);
 app.use("/ramp", rampRoutes);

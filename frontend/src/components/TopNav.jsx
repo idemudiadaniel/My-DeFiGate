@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import logoImg from '../assets/logo.png';
 
 const TopNav = ({ user, theme, toggleTheme, onLogout, backendStatus }) => {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -11,7 +12,7 @@ const TopNav = ({ user, theme, toggleTheme, onLogout, backendStatus }) => {
     <nav className="top-nav">
       <div className="nav-left">
         <a href="#/" className="logo">
-          <span className="logo-icon">💰</span>
+          <img src={logoImg} alt="DeFiGate Logo" style={{ height: '32px', width: 'auto' }} />
           <span className="logo-text">DeFiGate</span>
         </a>
       </div>
