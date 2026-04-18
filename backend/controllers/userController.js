@@ -4,6 +4,7 @@ import pool from "../db.js";
 import { generateToken } from "../middleware/auth.js";
 import { ensureUserWallet } from "./walletController.js";
 import { sendVerificationEmail } from "../services/emailService.js";
+import { respondError, respondSuccess } from "../utils/response.js";
 import Balance from "../models/Balance.js";
 import Transaction from "../models/Transaction.js";
 
@@ -175,7 +176,7 @@ export const signin = async (req, res) => {
   if (useInMemoryAuth) {
     const user = inMemoryUsers.get(normalizedEmail);
     if (!user) {
-      return respondError(res, 401, "Invalid credentials", false);
+      return respondError(res, 404, "Account not found. Please sign up first.", false);
     }
 
     const valid = await bcrypt.compare(password, user.password_hash);
@@ -218,7 +219,7 @@ export const signin = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return respondError(res, 401, "Invalid credentials", false);
+      return respondError(res, 404, "Account not found. Please sign up first.", false);
     }
 
     const user = result.rows[0];
