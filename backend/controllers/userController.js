@@ -373,53 +373,42 @@ export const getMe = async (req, res) => {
     return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
 
-  let fullUser;
-  if (useInMemoryAuth) {
-    fullUser = inMemoryUsers.get(normalizeEmail(user.email));
-    if (!fullUser) {
-      return res.status(401).json({ ok: false, error: "User not found" });
-    }
-    // Ensure fields exist
-    if (fullUser.balance_usd === undefined) fullUser.balance_usd = 100.00;
-    if (fullUser.is_verified === undefined) fullUser.is_verified = true;
-  } else {
+  try {
     const result = await pool.query(
-      `SELECT id, email, balance_usd, is_verified FROM users WHERE id = $1`,
+      `SELECT u.id, u.email, u.balance_usd, u.is_verified, b.available_balance
+       FROM users u
+       LEFT JOIN balances b ON u.id = b.user_id
+       WHERE u.id = $1`,
       [user.id]
     );
     if (result.rows.length === 0) {
       return res.status(401).json({ ok: false, error: "User not found" });
     }
-    fullUser = result.rows[0];
-  }
+    const fullUser = result.rows[0];
 
-  let wallet;
-  try {
-    wallet = await ensureUserWallet(fullUser.id, fullUser.email, "solana");
-  } catch (err) {
-    console.error("getMe wallet error", err?.message || err);
-    wallet = { status: "disconnected", error: err?.message || "Wallet lookup failed" };
-  }
+    let wallet;
+    try {
+      wallet = await ensureUserWallet(fullUser.id, fullUser.email, "solana");
+    } catch (err) {
+      console.error("getMe wallet error", err?.message || err);
+      wallet = { status: "disconnected", error: err?.message || "Wallet lookup failed" };
+    }
 
-  let available_balance = 0;
-  if (!useInMemoryAuth) {
-    const balanceResult = await pool.query(`SELECT available_balance FROM balances WHERE user_id = $1`, [fullUser.id]);
-    available_balance = Number(balanceResult.rows[0]?.available_balance || 0);
-  } else {
-    available_balance = fullUser.available_balance || 0;
-  }
-
-  res.json({
-    ok: true,
-    data: {
-      user: {
-        id: fullUser.id,
-        email: fullUser.email,
-        balance_usd: fullUser.balance_usd,
-        available_balance,
-        is_verified: fullUser.is_verified,
+    res.json({
+      ok: true,
+      data: {
+        user: {
+          id: fullUser.id,
+          email: fullUser.email,
+          balance_usd: fullUser.balance_usd,
+          available_balance: Number(fullUser.available_balance || 0),
+          is_verified: fullUser.is_verified,
+        },
+        wallet,
       },
-      wallet,
-    },
-  });
+    });
+  } catch (err) {
+    console.error("getMe error", err);
+    return respondError(res, 500, "Failed to get user data", true, err.message);
+  }
 };
