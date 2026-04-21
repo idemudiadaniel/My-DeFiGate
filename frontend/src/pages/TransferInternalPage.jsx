@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { FormStep, ConfirmationModal, ProcessingScreen, SuccessScreen } from '../components';
 
-const TransferInternalPage = ({ currentUser, currentWallet, sendTokens, navigateTo }) => {
+const TransferInternalPage = ({ currentUser, sendTokens, navigateTo }) => {
   const [currentStep, setCurrentStep] = useState('form');
+  const wallet = currentUser?.wallet;
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -105,7 +106,7 @@ const TransferInternalPage = ({ currentUser, currentWallet, sendTokens, navigate
     setTransactionData(null);
   };
 
-  if (!currentWallet) {
+  if (!wallet) {
     return (
       <div className="page-container">
         <div className="page-header">

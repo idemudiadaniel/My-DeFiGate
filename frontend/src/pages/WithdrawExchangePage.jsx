@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { FormStep, ConfirmationModal, ProcessingScreen, SuccessScreen } from '../components';
 
-const WithdrawExchangePage = ({ currentUser, currentWallet, sendTokens, navigateTo }) => {
+const WithdrawExchangePage = ({ currentUser, sendTokens, navigateTo }) => {
   const [currentStep, setCurrentStep] = useState('form');
+  const wallet = currentUser?.wallet;
   const [formData, setFormData] = useState({
     recipientAddress: '',
     amount: '',
-    network: currentWallet?.chain || 'ethereum',
+    network: wallet?.chain || 'ethereum',
     tokenAddress: '' // optional, for ERC-20 tokens
   });
   const [transactionData, setTransactionData] = useState(null);
@@ -60,13 +61,13 @@ const WithdrawExchangePage = ({ currentUser, currentWallet, sendTokens, navigate
     setFormData({
       recipientAddress: '',
       amount: '',
-      network: currentWallet?.chain || 'ethereum',
+      network: wallet?.chain || 'ethereum',
       tokenAddress: ''
     });
     setTransactionData(null);
   };
 
-  if (!currentWallet) {
+  if (!wallet) {
     return (
       <div className="page-container">
         <div className="page-header">

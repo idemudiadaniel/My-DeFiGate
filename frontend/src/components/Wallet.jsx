@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 
-function Wallet({ currentUser, currentWallet, createWallet }) {
+function Wallet({ currentUser, createWallet }) {
   const [result, setResult] = useState(null);
   const [isError, setIsError] = useState(false);
+  const wallet = currentUser?.wallet;
 
   const handleCreateWallet = async () => {
     const chainSelect = document.getElementById("walletChain");
@@ -40,21 +41,21 @@ function Wallet({ currentUser, currentWallet, createWallet }) {
         )}
       </div>
 
-      {currentWallet && (
+      {wallet && (
         <div className="card">
           <h3>Your Wallet</h3>
           <div className="info-grid">
             <div className="info-item">
               <span className="info-label">Wallet ID</span>
-              <span className="info-value">{currentWallet.id}</span>
+              <span className="info-value">{wallet.id}</span>
             </div>
             <div className="info-item">
               <span className="info-label">Address</span>
-              <span className="info-value info-mono">{currentWallet.address}</span>
+              <span className="info-value info-mono">{wallet.address}</span>
             </div>
             <div className="info-item">
               <span className="info-label">Chain</span>
-              <span className="info-value">{currentWallet.chain}</span>
+              <span className="info-value">{wallet.chain}</span>
             </div>
           </div>
         </div>

@@ -84,8 +84,9 @@ export const signup = async (req, res) => {
         company: user.company,
         is_verified: user.is_verified,
         kyc_status: user.kyc_status,
+        available_balance: 100.0,
+        wallet,
       },
-      wallet,
       token,
     }, "Account created and authenticated");
   } catch (err) {
@@ -152,8 +153,8 @@ export const signin = async (req, res) => {
         available_balance: available_balance,
         is_verified: user.is_verified,
         kyc_status: user.kyc_status,
+        wallet,
       },
-      wallet,
       token,
     });
   } catch (err) {
@@ -403,8 +404,8 @@ export const getMe = async (req, res) => {
           balance_usd: fullUser.balance_usd,
           available_balance: Number(fullUser.available_balance || 0),
           is_verified: fullUser.is_verified,
+          wallet,
         },
-        wallet,
       },
     });
   } catch (err) {

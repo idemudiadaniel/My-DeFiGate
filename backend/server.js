@@ -40,6 +40,14 @@ app.use("/user", userRoutes);
 app.use("/transfer", transferRoutes);
 app.use("/test", testRoutes);
 
+// Also expose the same API under /api/* so the frontend proxy works consistently
+app.use("/api/mento", rampRoutes);
+app.use("/api/ramp", rampRoutes);
+app.use("/api/wallet", walletRoutes);
+app.use("/api/user", userRoutes);
+app.use("/api/transfer", transferRoutes);
+app.use("/api/test", testRoutes);
+
 // Health check
 app.get("/api/health", (req, res) => {
   res.json({ ok: true, service: "DeFiGate", timestamp: new Date().toISOString() });

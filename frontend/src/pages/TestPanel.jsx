@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-const TestPanel = ({ currentUser, currentWallet }) => {
+const TestPanel = ({ currentUser }) => {
   const [depositAmount, setDepositAmount] = useState('');
   const [depositReference, setDepositReference] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');

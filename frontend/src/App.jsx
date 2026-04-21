@@ -3,6 +3,7 @@ import './App.css'
 import { useToast } from './hooks/useToast'
 import { useBackendStatus } from './hooks/useBackendStatus'
 import { useTheme } from './hooks/useTheme'
+import { useUserRefresh } from './hooks/useUserRefresh'
 import {
   DashboardRefactored,
   Wallet,
@@ -26,8 +27,7 @@ import TestPanel from './pages/TestPanel'
 const API = '';
 
 function App() {
-  const [currentUser, setCurrentUser] = useState(null); // { id, email }
-  const [currentWallet, setCurrentWallet] = useState(null); // { id, address, chain_type }
+  const [currentUser, setCurrentUser] = useState(null);
   const [authMode, setAuthMode] = useState("signin"); // "signin" | "signup"
   const [currentView, setCurrentView] = useState("dashboard");
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -35,6 +35,15 @@ function App() {
   const { toasts, toast } = useToast();
   const backendStatus = useBackendStatus();
   const { isDark, toggleTheme } = useTheme();
+  const { refreshUser } = useUserRefresh();
+
+  // Restore user session on app load
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      refreshUser(setCurrentUser);
+    }
+  }, [refreshUser]);
 
   // Navigation
   const navigateTo = (viewName) => {
@@ -45,7 +54,6 @@ function App() {
   const toggleAuth = () => {
     if (currentUser) {
       setCurrentUser(null);
-      setCurrentWallet(null);
       toast("Signed out", "info");
     } else {
       setAuthModalOpen(true);
@@ -102,6 +110,10 @@ function App() {
       setCurrentUser({ ...userData, token });
       localStorage.setItem("authToken", token);
       setAuthModalOpen(false);
+      
+      // Refresh user state to get latest wallet and balance data
+      setTimeout(() => refreshUser(setCurrentUser), 500);
+      
       toast(`Welcome${authMode === "signup" ? "! Account created" : " back"}, ${userData.email}`, "success");
     } catch (err) {
       toast(err.message, "error");
@@ -133,7 +145,7 @@ function App() {
         return;
       }
 
-      setCurrentWallet(data.data);
+      setCurrentUser({ ...currentUser, wallet: data.data });
       toast("Wallet created!", "success");
       return data.data;
     } catch (err) {
@@ -228,7 +240,7 @@ function App() {
       setAuthModalOpen(true);
       return;
     }
-    if (!currentWallet) {
+    if (!currentUser.wallet?.address) {
       toast("Create a wallet first", "error");
       setCurrentView("wallet");
       return;
@@ -248,11 +260,11 @@ function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          walletId: currentWallet.id,
+          walletId: currentUser.wallet.id,
           toAddress,
           tokenAddress: tokenAddress || undefined,
           amount: parseFloat(amount),
-          chain: currentWallet.chain,
+          chain: currentUser.wallet.chain,
         }),
       });
       const data = await res.json();
@@ -317,19 +329,19 @@ function App() {
 
         {currentUser && (
           <>
-            {currentView === 'dashboard' && <DashboardRefactored currentUser={currentUser} currentWallet={currentWallet} navigateTo={navigateTo} />}
-            {currentView === 'wallet' && <Wallet currentUser={currentUser} currentWallet={currentWallet} createWallet={createWallet} />}
+            {currentView === 'dashboard' && <DashboardRefactored currentUser={currentUser} navigateTo={navigateTo} />}
+            {currentView === 'wallet' && <Wallet currentUser={currentUser} createWallet={createWallet} />}
             {currentView === 'ramp' && <Ramp currentUser={currentUser} createOnramp={createOnramp} createOfframp={createOfframp} />}
-            {currentView === 'send' && <Send currentUser={currentUser} currentWallet={currentWallet} sendTokens={sendTokens} />}
+            {currentView === 'send' && <Send currentUser={currentUser} sendTokens={sendTokens} />}
             {currentView === 'deposit-bank' && <DepositBankPage currentUser={currentUser} createOnramp={createOnramp} navigateTo={navigateTo} />}
-            {currentView === 'deposit-exchange' && <DepositExchangePage currentWallet={currentWallet} navigateTo={navigateTo} />}
+            {currentView === 'deposit-exchange' && <DepositExchangePage currentUser={currentUser} navigateTo={navigateTo} />}
             {currentView === 'withdraw-bank' && <WithdrawBankPage currentUser={currentUser} createOfframp={createOfframp} navigateTo={navigateTo} />}
-            {currentView === 'withdraw-exchange' && <WithdrawExchangePage currentUser={currentUser} currentWallet={currentWallet} sendTokens={sendTokens} navigateTo={navigateTo} />}
-            {currentView === 'transfer-internal' && <TransferInternalPage currentUser={currentUser} currentWallet={currentWallet} sendTokens={sendTokens} navigateTo={navigateTo} />}
-            {currentView === 'finances' && <FinancesPage currentUser={currentUser} currentWallet={currentWallet} navigateTo={navigateTo} />}
+            {currentView === 'withdraw-exchange' && <WithdrawExchangePage currentUser={currentUser} sendTokens={sendTokens} navigateTo={navigateTo} />}
+            {currentView === 'transfer-internal' && <TransferInternalPage currentUser={currentUser} sendTokens={sendTokens} navigateTo={navigateTo} />}
+            {currentView === 'finances' && <FinancesPage currentUser={currentUser} navigateTo={navigateTo} />}
             {currentView === 'history' && <HistoryPage currentUser={currentUser} navigateTo={navigateTo} />}
             {currentView === 'settings' && <SettingsPage currentUser={currentUser} navigateTo={navigateTo} toggleAuth={toggleAuth} />}
-            {currentView === 'test-panel' && <TestPanel currentUser={currentUser} currentWallet={currentWallet} />}
+            {currentView === 'test-panel' && <TestPanel currentUser={currentUser} />}
           </>
         )}
       </main>

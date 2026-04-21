@@ -2,15 +2,16 @@ import React, { useState } from 'react';
 import TransferModal from './TransferModal';
 import { useBalance } from '../hooks/useBalance';
 
-function DashboardRefactored({ currentUser, currentWallet, navigateTo }) {
+function DashboardRefactored({ currentUser, navigateTo }) {
   const [copied, setCopied] = useState(false);
   const [expandedAction, setExpandedAction] = useState(null);
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const wallet = currentUser?.wallet;
   const { balance, loading: balanceLoading, refetch: refetchBalance } = useBalance(currentUser?.id);
 
   const copyAddress = () => {
-    if (currentWallet?.address) {
-      navigator.clipboard.writeText(currentWallet.address);
+    if (wallet?.address) {
+      navigator.clipboard.writeText(wallet.address);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -106,9 +107,9 @@ function DashboardRefactored({ currentUser, currentWallet, navigateTo }) {
   return (
     <div className="dashboard-container">
       {/* Network/Chain Label */}
-      {currentWallet && (
+      {wallet && (
         <div className="network-label">
-          <span className="network-badge">{currentWallet.chain?.toUpperCase() || 'ETHEREUM'}</span>
+          <span className="network-badge">{wallet.chain?.toUpperCase() || 'ETHEREUM'}</span>
         </div>
       )}
 
@@ -122,11 +123,11 @@ function DashboardRefactored({ currentUser, currentWallet, navigateTo }) {
       </div>
 
       {/* Wallet Address Section */}
-      {currentWallet && (
+      {wallet && (
         <div className="wallet-section">
           <div className="wallet-label">Wallet Address</div>
           <div className="wallet-address-container">
-            <code className="wallet-address">{currentWallet.address?.substring(0, 12)}...{currentWallet.address?.substring(-10)}</code>
+            <code className="wallet-address">{wallet.address?.substring(0, 12)}...{wallet.address?.substring(-10)}</code>
             <button className={`copy-btn ${copied ? 'copied' : ''}`} onClick={copyAddress}>
               {copied ? '✓' : '📋'}
             </button>
@@ -170,10 +171,10 @@ function DashboardRefactored({ currentUser, currentWallet, navigateTo }) {
             <span className="status-label">Account</span>
             <span className="status-value">{currentUser?.email || 'Not logged in'}</span>
           </div>
-          {currentWallet && (
+          {wallet && (
             <div className="status-item">
               <span className="status-label">Wallet</span>
-              <span className="status-value">{currentWallet.chain || 'Ethereum'}</span>
+              <span className="status-value">{wallet.chain || 'Ethereum'}</span>
             </div>
           )}
         </div>

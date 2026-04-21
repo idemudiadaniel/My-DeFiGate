@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const FinancesPage = ({ currentUser, currentWallet, navigateTo }) => {
+const FinancesPage = ({ currentUser, navigateTo }) => {
   const [assets, setAssets] = useState([]);
   const [totalBalance, setTotalBalance] = useState(0);
   const [loading, setLoading] = useState(true);

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 
-function Dashboard({ currentUser, currentWallet, navigateTo }) {
+function Dashboard({ currentUser, navigateTo }) {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const wallet = currentUser?.wallet;
 
   return (
     <div className="view active" id="view-dashboard">
@@ -14,17 +15,17 @@ function Dashboard({ currentUser, currentWallet, navigateTo }) {
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-label">Wallet Status</div>
-          <div className="stat-value" style={{ color: currentWallet ? 'var(--success)' : 'inherit' }}>
-            {currentWallet ? "Active" : "No Wallet"}
+          <div className="stat-value" style={{ color: wallet ? 'var(--success)' : 'inherit' }}>
+            {wallet ? "Active" : "No Wallet"}
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Wallet Address</div>
-          <div className="stat-value stat-mono">{currentWallet ? currentWallet.address : "—"}</div>
+          <div className="stat-value stat-mono">{wallet ? wallet.address : "—"}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Chain</div>
-          <div className="stat-value">{currentWallet ? currentWallet.chain : "—"}</div>
+          <div className="stat-value">{wallet ? wallet.chain : "—"}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Account</div>
@@ -36,7 +37,7 @@ function Dashboard({ currentUser, currentWallet, navigateTo }) {
       <div className="balance-section">
         <h2>Balance</h2>
         <div className="balance-amount">
-          {currentWallet ? `$${currentWallet.balance || '0.00'} USDC` : 'No Wallet'}
+          {currentUser?.available_balance ? `$${currentUser.available_balance} USD` : 'No Wallet'}
         </div>
       </div>
 

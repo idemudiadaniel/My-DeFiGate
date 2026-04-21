@@ -1,18 +1,19 @@
 import React, { useState } from 'react';
 import { QRCode } from '../components';
 
-const DepositExchangePage = ({ currentWallet, navigateTo }) => {
+const DepositExchangePage = ({ currentUser, navigateTo }) => {
   const [copied, setCopied] = useState(false);
+  const wallet = currentUser?.wallet;
 
   const copyAddress = () => {
-    if (currentWallet?.address) {
-      navigator.clipboard.writeText(currentWallet.address);
+    if (wallet?.address) {
+      navigator.clipboard.writeText(wallet.address);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
-  if (!currentWallet) {
+  if (!wallet) {
     return (
       <div className="page-container">
         <div className="page-header">
@@ -35,17 +36,17 @@ const DepositExchangePage = ({ currentWallet, navigateTo }) => {
 
       <div className="deposit-address-section">
         <div className="network-info">
-          <span className="network-badge">{currentWallet.chain?.toUpperCase() || 'ETHEREUM'}</span>
+          <span className="network-badge">{wallet.chain?.toUpperCase() || 'ETHEREUM'}</span>
         </div>
 
         <div className="qr-section">
-          <QRCode value={currentWallet.address} size={200} />
+          <QRCode value={wallet.address} size={200} />
         </div>
 
         <div className="address-section">
           <label>Wallet Address</label>
           <div className="address-container">
-            <code className="wallet-address">{currentWallet.address}</code>
+            <code className="wallet-address">{wallet.address}</code>
             <button
               className={`copy-btn ${copied ? 'copied' : ''}`}
               onClick={copyAddress}
@@ -58,7 +59,7 @@ const DepositExchangePage = ({ currentWallet, navigateTo }) => {
         <div className="deposit-instructions">
           <h3>Deposit Instructions</h3>
           <ul>
-            <li>Send only {currentWallet.chain?.toUpperCase() || 'ETHEREUM'} network tokens to this address</li>
+            <li>Send only {wallet.chain?.toUpperCase() || 'ETHEREUM'} network tokens to this address</li>
             <li>Ensure the network matches to avoid loss of funds</li>
             <li>Deposits are usually confirmed within a few minutes</li>
             <li>Minimum deposit amount may apply</li>

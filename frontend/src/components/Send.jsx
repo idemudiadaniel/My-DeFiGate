@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 
-function Send({ currentUser, currentWallet, sendTokens }) {
+function Send({ currentUser, sendTokens }) {
   const [result, setResult] = useState(null);
+  const wallet = currentUser?.wallet;
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -35,10 +36,10 @@ function Send({ currentUser, currentWallet, sendTokens }) {
             </div>
             <div className="form-group">
               <label>Chain</label>
-              <div className="info-value">{currentWallet ? currentWallet.chain : "No wallet"}</div>
+              <div className="info-value">{wallet ? wallet.chain : "No wallet"}</div>
             </div>
           </div>
-          <button type="submit" className="btn btn-primary" disabled={!currentUser || !currentWallet}>Send</button>
+          <button type="submit" className="btn btn-primary" disabled={!currentUser || !wallet?.address}>Send</button>
         </form>
         {result && <pre className="result success">{result}</pre>}
       </div>
