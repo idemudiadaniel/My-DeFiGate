@@ -7,40 +7,37 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const express = (await import("express")).default;
-const cors = (await import("cors")).default;
-const bodyParser = (await import("body-parser")).default;
-const { sequelize } = await import("./models/index.js");
-const rampRoutes = (await import("./routes/ramp.js")).default;
-const walletRoutes = (await import("./routes/wallet.js")).default;
-const userRoutes = (await import("./routes/user.js")).default;
-const transferRoutes = (await import("./routes/transfer.js")).default;
-const testRoutes = (await import("./routes/test.js")).default;
+import express from "express";
+import cors from "cors";
+import bodyParser from "body-parser";
+
+import { sequelize } from "./models/index.js";
+
+import rampRoutes from "./routes/ramp.js";
+import walletRoutes from "./routes/wallet.js";
+import userRoutes from "./routes/user.js";
+import transferRoutes from "./routes/transfer.js";
+import testRoutes from "./routes/test.js";
 
 const app = express();
 
-// Require Supabase for all environments
+// ======================
+// ENV CHECK
+// ======================
 if (!process.env.DATABASE_URL) {
-  console.error("❌ DATABASE_URL is required. Please set it to your Supabase PostgreSQL connection string.");
+  console.error("❌ DATABASE_URL is required");
   process.exit(1);
 }
 
+// ======================
+// MIDDLEWARE
+// ======================
 app.use(cors());
 app.use(bodyParser.json());
 
-// Serve frontend static files
-app.use(express.static(path.join(__dirname, "../frontend/dist")));
-
-// API Routes
-// Mount under /mento for backward compat and /ramp for new routes
-app.use("/mento", rampRoutes);
-app.use("/ramp", rampRoutes);
-app.use("/wallet", walletRoutes);
-app.use("/user", userRoutes);
-app.use("/transfer", transferRoutes);
-app.use("/test", testRoutes);
-
-// Also expose the same API under /api/* so the frontend proxy works consistently
+// ======================
+// API ROUTES
+// ======================
 app.use("/api/mento", rampRoutes);
 app.use("/api/ramp", rampRoutes);
 app.use("/api/wallet", walletRoutes);
@@ -48,38 +45,48 @@ app.use("/api/user", userRoutes);
 app.use("/api/transfer", transferRoutes);
 app.use("/api/test", testRoutes);
 
-// Health check
+// ======================
+// HEALTH CHECK
+// ======================
 app.get("/api/health", (req, res) => {
-  res.json({ ok: true, service: "DeFiGate", timestamp: new Date().toISOString() });
+  res.json({
+    ok: true,
+    service: "DeFiGate API",
+    timestamp: new Date().toISOString()
+  });
 });
 
-// Global error handler
+// ======================
+// GLOBAL ERROR HANDLER
+// ======================
 app.use((err, req, res, next) => {
-  console.error('Global error:', err);
-  res.status(500).json({ ok: false, message: err.message || 'Internal server error' });
+  console.error("❌ Error:", err);
+  res.status(500).json({
+    ok: false,
+    message: err.message || "Internal server error"
+  });
 });
 
-// Fallback: serve frontend for any unmatched route (SPA support)
-app.use((req, res) => {
-  res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
-});
-
+// ======================
+// START SERVER
+// ======================
 const PORT = process.env.PORT || 5000;
 
 (async () => {
   try {
     await sequelize.authenticate();
-    console.log("✅ Supabase PostgreSQL database connected");
+    console.log("✅ Database connected");
+
     await sequelize.sync({ alter: process.env.NODE_ENV === "development" });
-    console.log("✅ Sequelize models synchronized with Supabase");
+    console.log("✅ Models synced");
+
     await import("./services/depositDetector.js");
 
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(`DeFiGate server running on port ${PORT}`);
+      console.log(`🚀 API running on port ${PORT}`);
     });
   } catch (err) {
-    console.error("❌ Supabase connection failed:", err.message);
-    console.error("💡 Make sure your DATABASE_URL is correct and Supabase is accessible");
+    console.error("❌ Startup error:", err);
     process.exit(1);
   }
 })();
