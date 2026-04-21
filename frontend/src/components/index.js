@@ -10,3 +10,4 @@ export { default as ConfirmationModal } from './ConfirmationModal';
 export { default as ProcessingScreen } from './ProcessingScreen';
 export { default as SuccessScreen } from './SuccessScreen';
 export { default as QRCode } from './QRCode';
+export { default as TransferModal } from './TransferModal';

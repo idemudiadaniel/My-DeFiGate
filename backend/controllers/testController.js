@@ -1,10 +1,7 @@
 import crypto from "crypto";
-import sequelize from "../config/database.js";
+import pool from "../db.js";
 import Balance from "../models/Balance.js";
 import Transaction from "../models/Transaction.js";
-import { inMemoryUsers } from "./userController.js";
-
-const useInMemoryAuth = !process.env.DATABASE_URL;
 
 export const depositTestFunds = async (req, res) => {
   const userId = req.user?.id;
@@ -21,91 +18,84 @@ export const depositTestFunds = async (req, res) => {
 
   const txReference = reference?.trim() || `test-deposit-${Date.now()}`;
 
-  if (useInMemoryAuth) {
-    const user = Array.from(inMemoryUsers.values()).find((value) => value.id === userId);
-    if (!user) {
-      return res.status(404).json({ ok: false, error: "User not found" });
-    }
-
-    if (user.available_balance === undefined) {
-      user.available_balance = 0;
-    }
-
-    user.available_balance += depositAmount;
-    const transaction = {
-      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`,
-      user_id: userId,
-      type: "deposit",
-      amount: depositAmount,
-      status: "completed",
-      tx_hash: `solana-deposit-${Date.now()}`,
-      reference: txReference,
-      created_at: new Date().toISOString(),
-    };
-
-    return res.json({
-      ok: true,
-      data: {
-        transaction,
-        available_balance: user.available_balance,
-      },
-      message: "Test deposit applied",
-    });
-  }
-
-  const t = await sequelize.transaction();
   try {
-    const existing = await Transaction.findOne({
-      where: { user_id: userId, type: "deposit", reference: txReference },
-      transaction: t,
-    });
+    const existing = await pool.query(
+      `SELECT id, amount, status FROM transactions WHERE user_id = $1 AND type = $2 AND reference = $3`,
+      [userId, 'deposit', txReference]
+    );
 
-    if (existing) {
-      await t.rollback();
+    if (existing.rows.length > 0) {
+      const existingTx = existing.rows[0];
+      const balanceResult = await pool.query(
+        `SELECT balance FROM balances WHERE user_id = $1`,
+        [userId]
+      );
+
       return res.json({
         ok: true,
         data: {
-          transaction: existing,
+          transaction: existingTx,
+          available_balance: Number(balanceResult.rows[0]?.balance || 0),
           message: "Existing deposit returned",
         },
       });
     }
 
-    let balance = await Balance.findOne({ where: { user_id: userId }, transaction: t });
-    if (!balance) {
-      balance = await Balance.create({ user_id: userId, available_balance: 0 }, { transaction: t });
-    }
+    await pool.query('BEGIN');
 
-    const transaction = await Transaction.create(
-      {
-        user_id: userId,
-        type: "deposit",
-        amount: depositAmount,
-        status: "completed",
-        tx_hash: `solana-deposit-${Date.now()}`,
-        reference: txReference,
-      },
-      { transaction: t }
+    let balanceResult = await pool.query(
+      `SELECT balance FROM balances WHERE user_id = $1`,
+      [userId]
     );
 
-    await Balance.increment("available_balance", {
-      by: depositAmount,
-      where: { user_id: userId },
-      transaction: t,
-    });
+    if (balanceResult.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO balances (user_id, balance) VALUES ($1, $2)`,
+        [userId, 0]
+      );
+    }
 
-    await t.commit();
+    const currentBalance = Number(balanceResult.rows[0]?.balance || 0);
+    const newBalance = currentBalance + depositAmount;
+
+    const transactionResult = await pool.query(
+      `INSERT INTO transactions (user_id, type, amount, balance_after, description, reference, tx_hash, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, amount, status`,
+      [
+        userId,
+        'deposit',
+        depositAmount,
+        newBalance,
+        `Test deposit of $${depositAmount}`,
+        txReference,
+        `solana-deposit-${Date.now()}`,
+        'completed'
+      ]
+    );
+
+    await pool.query(
+      `UPDATE balances SET balance = balance + $1 WHERE user_id = $2`,
+      [depositAmount, userId]
+    );
+
+    await pool.query('COMMIT');
+
+    const newBalanceResult = await pool.query(
+      `SELECT balance FROM balances WHERE user_id = $1`,
+      [userId]
+    );
 
     return res.json({
       ok: true,
       data: {
-        transaction,
-        available_balance: Number(balance.available_balance) + depositAmount,
+        transaction: transactionResult.rows[0],
+        available_balance: Number(newBalanceResult.rows[0]?.balance || 0),
       },
-      message: "Test deposit applied successfully",
+      message: "Test deposit applied",
     });
   } catch (err) {
-    await t.rollback();
+    await pool.query('ROLLBACK');
     console.error("depositTestFunds error", err);
     res.status(500).json({ ok: false, error: "Test deposit failed" });
   }

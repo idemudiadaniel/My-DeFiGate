@@ -2,13 +2,11 @@ import pool from "../db.js";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import dotenv from "dotenv";
-import { inMemoryUsers } from "./userController.js";
 import sequelize from "../config/database.js";
 import Balance from "../models/Balance.js";
 import Transaction from "../models/Transaction.js";
 dotenv.config();
 
-const useInMemoryAuth = !process.env.DATABASE_URL;
 const inMemoryTransfers = new Map();
 const inMemoryPINs = new Map(); // Temporary PIN storage: key format = "senderID:transferID"
 
@@ -26,39 +24,6 @@ export const lookupRecipient = async (req, res) => {
   }
 
   try {
-    let recipient;
-
-    if (useInMemoryAuth) {
-      // In-memory fallback - search for user in inMemoryUsers
-      if (identifier.includes("@")) {
-        // Search by email
-        const normalizedIdentifier = identifier.toLowerCase();
-        recipient = inMemoryUsers.get(normalizedIdentifier);
-      } else {
-        // Search by user ID
-        for (const [, user] of inMemoryUsers) {
-          if (user.id === identifier) {
-            recipient = user;
-            break;
-          }
-        }
-      }
-
-      if (!recipient) {
-        return res.status(404).json({ ok: false, error: "Recipient not found" });
-      }
-
-      return res.json({
-        ok: true,
-        data: {
-          id: recipient.id,
-          email: recipient.email,
-          is_verified: !!recipient.is_verified,
-        },
-      });
-    }
-
-    // Database mode
     let query;
     let params;
 
@@ -76,13 +41,12 @@ export const lookupRecipient = async (req, res) => {
       return res.status(404).json({ ok: false, error: "Recipient not found" });
     }
 
-    recipient = result.rows[0];
+    const recipient = result.rows[0];
     res.json({
       ok: true,
       data: {
         id: recipient.id,
         email: recipient.email,
-        is_verified: !!recipient.is_verified,
       },
     });
   } catch (err) {
@@ -117,41 +81,6 @@ export const initiateTransfer = async (req, res) => {
   }
 
   try {
-    if (useInMemoryAuth) {
-      // In-memory mode
-      const transferId = crypto.randomUUID();
-      const pin = generatePIN();
-
-      const transfer = {
-        id: transferId,
-        sender_id: senderId,
-        sender_email: senderEmail,
-        recipient_id: recipientId,
-        amount: parseFloat(amount),
-        token_symbol: tokenSymbol,
-        chain,
-        status: "pending_confirmation",
-        created_at: new Date().toISOString(),
-      };
-
-      // Store transfer
-      inMemoryTransfers.set(transferId, transfer);
-
-      // Store PIN temporarily
-      inMemoryPINs.set(`${senderId}:${transferId}`, pin);
-
-      return res.json({
-        ok: true,
-        data: {
-          transferId,
-          status: "pending_confirmation",
-          message: `Transfer initiated. PIN has been sent to your registered email/phone.`,
-          pin, // In development, return PIN (remove in production)
-        },
-      });
-    }
-
-    // Database mode
     const insertResult = await pool.query(
       `INSERT INTO transfers (sender_id, recipient_id, amount, token_symbol, chain, status, metadata)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -208,68 +137,6 @@ export const confirmTransfer = async (req, res) => {
   }
 
   try {
-    if (useInMemoryAuth) {
-      // In-memory mode
-      const transfer = inMemoryTransfers.get(transferId);
-
-      if (!transfer) {
-        return res.status(404).json({ ok: false, error: "Transfer not found" });
-      }
-
-      if (transfer.sender_id !== senderId) {
-        return res.status(403).json({ ok: false, error: "Unauthorized" });
-      }
-
-      if (transfer.status !== "pending_confirmation") {
-        return res.status(400).json({ ok: false, error: "Transfer cannot be confirmed" });
-      }
-
-      // Verify PIN
-      const storedPin = inMemoryPINs.get(`${senderId}:${transferId}`);
-      if (storedPin !== pin) {
-        return res.status(400).json({ ok: false, error: "Invalid PIN" });
-      }
-
-      // Ensure sender has enough testnet balance in USD
-      const senderUser = Array.from(inMemoryUsers.values()).find((u) => u.id === senderId);
-      const recipientUser = Array.from(inMemoryUsers.values()).find((u) => u.id === transfer.recipient_id);
-
-      if (!senderUser || !recipientUser) {
-        return res.status(404).json({ ok: false, error: "User not found" });
-      }
-
-      const transferAmount = Number(transfer.amount || 0);
-      if (Number.isNaN(transferAmount) || transferAmount <= 0) {
-        return res.status(400).json({ ok: false, error: "Invalid transfer amount" });
-      }
-
-      if (senderUser.balance_usd < transferAmount) {
-        return res.status(400).json({ ok: false, error: "Insufficient funds" });
-      }
-
-      senderUser.balance_usd -= transferAmount;
-      recipientUser.balance_usd += transferAmount;
-
-      // Mark transfer as completed
-      transfer.status = "completed";
-      transfer.completed_at = new Date().toISOString();
-      inMemoryTransfers.set(transferId, transfer);
-
-      // Clear PIN
-      inMemoryPINs.delete(`${senderId}:${transferId}`);
-
-      return res.json({
-        ok: true,
-        data: {
-          transferId,
-          status: "completed",
-          message: "Transfer completed successfully",
-          transfer,
-        },
-      });
-    }
-
-    // Database mode
     const transferResult = await pool.query(
       `SELECT id, sender_id, recipient_id, amount, token_symbol, status FROM transfers WHERE id = $1`,
       [transferId]
@@ -316,16 +183,16 @@ export const confirmTransfer = async (req, res) => {
     await pool.query("BEGIN");
 
     const senderBalanceResult = await pool.query(
-      `SELECT balance_usd FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT balance FROM balances WHERE user_id = $1 FOR UPDATE`,
       [senderId]
     );
 
     if (senderBalanceResult.rows.length === 0) {
       await pool.query("ROLLBACK");
-      return res.status(404).json({ ok: false, error: "Sender not found" });
+      return res.status(404).json({ ok: false, error: "Sender balance not found" });
     }
 
-    const senderBalance = Number(senderBalanceResult.rows[0].balance_usd || 0);
+    const senderBalance = Number(senderBalanceResult.rows[0].balance || 0);
     const transferAmount = Number(transfer.amount || 0);
 
     if (Number.isNaN(transferAmount) || transferAmount <= 0) {
@@ -339,22 +206,22 @@ export const confirmTransfer = async (req, res) => {
     }
 
     const recipientBalanceResult = await pool.query(
-      `SELECT balance_usd FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT balance FROM balances WHERE user_id = $1 FOR UPDATE`,
       [transfer.recipient_id]
     );
 
     if (recipientBalanceResult.rows.length === 0) {
       await pool.query("ROLLBACK");
-      return res.status(404).json({ ok: false, error: "Recipient not found" });
+      return res.status(404).json({ ok: false, error: "Recipient balance not found" });
     }
 
     await pool.query(
-      `UPDATE users SET balance_usd = balance_usd - $1 WHERE id = $2`,
+      `UPDATE balances SET balance = balance - $1 WHERE user_id = $2`,
       [transferAmount, senderId]
     );
 
     await pool.query(
-      `UPDATE users SET balance_usd = balance_usd + $1 WHERE id = $2`,
+      `UPDATE balances SET balance = balance + $1 WHERE user_id = $2`,
       [transferAmount, transfer.recipient_id]
     );
 
@@ -395,32 +262,16 @@ export const getTransferHistory = async (req, res) => {
   }
 
   try {
-    if (useInMemoryAuth) {
-      // In-memory mode - filter transfers
-      const transfers = Array.from(inMemoryTransfers.values()).filter(
-        (t) => t.sender_id === userId || t.recipient_id === userId
-      );
-
-      return res.json({
-        ok: true,
-        data: {
-          sent: transfers.filter((t) => t.sender_id === userId),
-          received: transfers.filter((t) => t.recipient_id === userId),
-        },
-      });
-    }
-
-    // Database mode
     const result = await pool.query(
-      `SELECT 
-        t.id, 
-        t.sender_id, 
-        t.recipient_id, 
-        t.amount, 
-        t.token_symbol, 
-        t.chain, 
-        t.status, 
-        t.created_at, 
+      `SELECT
+        t.id,
+        t.sender_id,
+        t.recipient_id,
+        t.amount,
+        t.token_symbol,
+        t.chain,
+        t.status,
+        t.created_at,
         t.completed_at,
         s.email as sender_email,
         r.email as recipient_email
@@ -469,111 +320,83 @@ export const transfer = async (req, res) => {
 
   const normalizedRecipientEmail = recipientEmail.toLowerCase();
 
-  if (useInMemoryAuth) {
-    const sender = Array.from(inMemoryUsers.values()).find((u) => u.id === senderId);
-    const recipient = Array.from(inMemoryUsers.values()).find((u) => u.email === normalizedRecipientEmail);
-
-    if (!sender) {
-      return res.status(404).json({ ok: false, error: "Sender not found" });
-    }
-    if (!recipient) {
+  try {
+    const recipientResult = await pool.query(`SELECT id, email FROM users WHERE email = $1`, [normalizedRecipientEmail]);
+    if (recipientResult.rows.length === 0) {
       return res.status(404).json({ ok: false, error: "Recipient not found" });
     }
-    if (sender.id === recipient.id) {
+
+    const recipientId = recipientResult.rows[0].id;
+    if (recipientId === senderId) {
       return res.status(400).json({ ok: false, error: "Cannot transfer to yourself" });
     }
-    if ((sender.available_balance || 0) < transferAmount) {
+
+    if (requestReference) {
+      const existingTransaction = await pool.query(
+        `SELECT id, status FROM transactions WHERE user_id = $1 AND type = $2 AND reference = $3`,
+        [senderId, 'transfer', requestReference]
+      );
+
+      if (existingTransaction.rows.length > 0) {
+        return res.json({
+          ok: true,
+          data: {
+            transactionId: existingTransaction.rows[0].id,
+            status: existingTransaction.rows[0].status,
+            message: "Duplicate request ignored. Existing transfer returned.",
+          },
+        });
+      }
+    }
+
+    await pool.query('BEGIN');
+
+    const senderBalanceResult = await pool.query(
+      `SELECT balance FROM balances WHERE user_id = $1 FOR UPDATE`,
+      [senderId]
+    );
+    if (senderBalanceResult.rows.length === 0 || Number(senderBalanceResult.rows[0].balance) < transferAmount) {
+      await pool.query('ROLLBACK');
       return res.status(400).json({ ok: false, error: "Insufficient balance" });
     }
 
-    sender.available_balance -= transferAmount;
-    recipient.available_balance = (recipient.available_balance || 0) + transferAmount;
+    await pool.query(
+      `UPDATE balances SET balance = balance - $1 WHERE user_id = $2`,
+      [transferAmount, senderId]
+    );
+    await pool.query(
+      `UPDATE balances SET balance = balance + $1 WHERE user_id = $2`,
+      [transferAmount, recipientId]
+    );
 
-    const transaction = {
-      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`,
-      user_id: senderId,
-      type: 'transfer',
-      amount: transferAmount,
-      status: 'completed',
-      reference: requestReference || `transfer:${Date.now()}->${normalizedRecipientEmail}`,
-      tx_hash: `solana-transfer-${Date.now()}`,
-      created_at: new Date().toISOString(),
-    };
+    const transactionResult = await pool.query(
+      `INSERT INTO transactions (user_id, type, amount, balance_after, description, reference, tx_hash, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, status`,
+      [
+        senderId,
+        'transfer',
+        transferAmount,
+        Number(senderBalanceResult.rows[0].balance) - transferAmount,
+        `Transfer to ${normalizedRecipientEmail}`,
+        requestReference || `transfer:${Date.now()}->${normalizedRecipientEmail}`,
+        `solana-transfer-${Date.now()}`,
+        'completed'
+      ]
+    );
 
-    return res.json({
-      ok: true,
-      data: {
-        transactionId: transaction.id,
-        status: transaction.status,
-        message: "Transfer completed successfully",
-      },
-    });
-  }
-
-  const recipientResult = await pool.query(`SELECT id, email FROM users WHERE email = $1`, [normalizedRecipientEmail]);
-  if (recipientResult.rows.length === 0) {
-    return res.status(404).json({ ok: false, error: "Recipient not found" });
-  }
-
-  const recipientId = recipientResult.rows[0].id;
-  if (recipientId === senderId) {
-    return res.status(400).json({ ok: false, error: "Cannot transfer to yourself" });
-  }
-
-  if (requestReference) {
-    const existingTransaction = await Transaction.findOne({
-      where: {
-        user_id: senderId,
-        type: 'transfer',
-        reference: requestReference,
-      },
-    });
-
-    if (existingTransaction) {
-      return res.json({
-        ok: true,
-        data: {
-          transactionId: existingTransaction.id,
-          status: existingTransaction.status,
-          message: "Duplicate request ignored. Existing transfer returned.",
-        },
-      });
-    }
-  }
-
-  const t = await sequelize.transaction();
-
-  try {
-    const senderBalance = await Balance.findOne({ where: { user_id: senderId }, transaction: t, lock: true });
-    if (!senderBalance || Number(senderBalance.available_balance) < transferAmount) {
-      await t.rollback();
-      return res.status(400).json({ ok: false, error: "Insufficient balance" });
-    }
-
-    await Balance.decrement('available_balance', { by: transferAmount, where: { user_id: senderId }, transaction: t });
-    await Balance.increment('available_balance', { by: transferAmount, where: { user_id: recipientId }, transaction: t });
-
-    const transaction = await Transaction.create({
-      user_id: senderId,
-      type: 'transfer',
-      amount: transferAmount,
-      status: 'completed',
-      reference: requestReference || `transfer:${Date.now()}->${normalizedRecipientEmail}`,
-      tx_hash: `solana-transfer-${Date.now()}`,
-    }, { transaction: t });
-
-    await t.commit();
+    await pool.query('COMMIT');
 
     res.json({
       ok: true,
       data: {
-        transactionId: transaction.id,
-        status: transaction.status,
+        transactionId: transactionResult.rows[0].id,
+        status: transactionResult.rows[0].status,
         message: "Transfer completed successfully",
       },
     });
   } catch (err) {
-    await t.rollback();
+    await pool.query('ROLLBACK');
     console.error("transfer error", err);
     res.status(500).json({ ok: false, error: "Transfer failed" });
   }
@@ -601,84 +424,74 @@ export const withdraw = async (req, res) => {
     return res.status(400).json({ ok: false, error: "Valid amount and Solana address required" });
   }
 
-  if (useInMemoryAuth) {
-    const user = Array.from(inMemoryUsers.values()).find((u) => u.id === userId);
-    if (!user) {
-      return res.status(404).json({ ok: false, error: "User not found" });
-    }
-    if ((user.available_balance || 0) < withdrawAmount) {
-      return res.status(400).json({ ok: false, error: "Insufficient balance" });
-    }
-
-    user.available_balance -= withdrawAmount;
-    const transaction = {
-      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`,
-      user_id: userId,
-      type: 'withdrawal',
-      amount: withdrawAmount,
-      status: 'completed',
-      reference: `withdrawal to ${toAddress}`,
-      tx_hash: `solana-withdraw-${Date.now()}`,
-      created_at: new Date().toISOString(),
-    };
-
-    return res.json({
-      ok: true,
-      data: {
-        transactionId: transaction.id,
-        status: transaction.status,
-        message: "Withdrawal completed successfully",
-      },
-    });
-  }
-
-  const t = await sequelize.transaction();
-
-  let transaction;
   try {
-    const balance = await Balance.findOne({ where: { user_id: userId }, transaction: t, lock: true });
-    if (!balance || Number(balance.available_balance) < withdrawAmount) {
-      await t.rollback();
+    await pool.query('BEGIN');
+
+    const balanceResult = await pool.query(
+      `SELECT balance FROM balances WHERE user_id = $1 FOR UPDATE`,
+      [userId]
+    );
+    if (balanceResult.rows.length === 0 || Number(balanceResult.rows[0].balance) < withdrawAmount) {
+      await pool.query('ROLLBACK');
       return res.status(400).json({ ok: false, error: "Insufficient balance" });
     }
 
-    transaction = await Transaction.create({
-      user_id: userId,
-      type: 'withdrawal',
-      amount: withdrawAmount,
-      status: 'pending',
-      reference: `withdrawal to ${toAddress}`,
-    }, { transaction: t });
+    const transactionResult = await pool.query(
+      `INSERT INTO transactions (user_id, type, amount, balance_after, description, reference, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [
+        userId,
+        'withdrawal',
+        withdrawAmount,
+        Number(balanceResult.rows[0].balance) - withdrawAmount,
+        `Withdrawal to ${toAddress}`,
+        `withdrawal to ${toAddress}`,
+        'pending'
+      ]
+    );
 
-    await Balance.decrement('available_balance', { by: withdrawAmount, where: { user_id: userId }, transaction: t });
-    await t.commit();
+    await pool.query(
+      `UPDATE balances SET balance = balance - $1 WHERE user_id = $2`,
+      [withdrawAmount, userId]
+    );
+
+    await pool.query('COMMIT');
 
     const result = await simulateSolanaWithdrawal(toAddress, withdrawAmount);
 
     if (!result.success) {
-      const refundTransaction = await sequelize.transaction();
-      await Balance.increment('available_balance', { by: withdrawAmount, where: { user_id: userId }, transaction: refundTransaction });
-      await transaction.update({ status: 'failed', tx_hash: result.txHash || null }, { transaction: refundTransaction });
-      await refundTransaction.commit();
+      // Refund
+      await pool.query('BEGIN');
+      await pool.query(
+        `UPDATE balances SET balance = balance + $1 WHERE user_id = $2`,
+        [withdrawAmount, userId]
+      );
+      await pool.query(
+        `UPDATE transactions SET status = $1, tx_hash = $2 WHERE id = $3`,
+        ['failed', result.txHash || null, transactionResult.rows[0].id]
+      );
+      await pool.query('COMMIT');
 
       return res.status(500).json({ ok: false, error: "Withdrawal broadcast failed", details: result.message || "Transaction failed" });
     }
 
-    await transaction.update({ status: 'completed', tx_hash: result.txHash }, { transaction: null });
+    await pool.query(
+      `UPDATE transactions SET status = $1, tx_hash = $2 WHERE id = $3`,
+      ['completed', result.txHash, transactionResult.rows[0].id]
+    );
 
     res.json({
       ok: true,
       data: {
-        transactionId: transaction.id,
+        transactionId: transactionResult.rows[0].id,
         status: 'completed',
         tx_hash: result.txHash,
         message: "Withdrawal completed successfully",
       },
     });
   } catch (err) {
-    if (t.finished !== 'commit') {
-      await t.rollback();
-    }
+    await pool.query('ROLLBACK');
     console.error("withdraw error", err);
     res.status(500).json({ ok: false, error: "Withdrawal failed" });
   }
@@ -693,27 +506,14 @@ export const getPendingTransfers = async (req, res) => {
   }
 
   try {
-    if (useInMemoryAuth) {
-      // In-memory mode
-      const transfers = Array.from(inMemoryTransfers.values()).filter(
-        (t) => t.recipient_id === userId && t.status === "pending_confirmation"
-      );
-
-      return res.json({
-        ok: true,
-        data: transfers,
-      });
-    }
-
-    // Database mode
     const result = await pool.query(
-      `SELECT 
-        t.id, 
-        t.sender_id, 
-        t.amount, 
-        t.token_symbol, 
-        t.chain, 
-        t.status, 
+      `SELECT
+        t.id,
+        t.sender_id,
+        t.amount,
+        t.token_symbol,
+        t.chain,
+        t.status,
         t.created_at,
         s.email as sender_email
        FROM transfers t

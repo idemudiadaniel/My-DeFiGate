@@ -9,7 +9,8 @@ import {
   Ramp,
   Send,
   TopNav,
-  BottomNav
+  BottomNav,
+  TransferModal
 } from './components'
 import DepositBankPage from './pages/DepositBankPage'
 import DepositExchangePage from './pages/DepositExchangePage'
