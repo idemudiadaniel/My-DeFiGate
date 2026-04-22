@@ -54,6 +54,7 @@ async function getWalletByUserIdAndChain(userId, chainType) {
     `SELECT * FROM wallets WHERE user_id = $1 AND chain = $2 LIMIT 1`,
     [userId, chainType]
   );
+
   return result.rows[0] || null;
 }
 
@@ -108,12 +109,12 @@ export async function ensureUserWallet(
     console.error("DB wallet lookup failed:", err?.message);
   }
 
-  // 2. Fallback cache
+  // 2. Memory cache
   if (inMemoryWallets.has(key)) {
     return inMemoryWallets.get(key);
   }
 
-  // 3. If Privy disabled → return safe local wallet
+  // 3. Privy disabled → safe fallback
   if (!isPrivyEnabled) {
     const wallet = {
       id: key,
@@ -128,7 +129,7 @@ export async function ensureUserWallet(
     return wallet;
   }
 
-  // 4. Try Privy (NON-CRITICAL)
+  // 4. Try Privy (non-blocking)
   const privyWallet = await createPrivyWallet(chainType);
 
   if (!privyWallet) {
