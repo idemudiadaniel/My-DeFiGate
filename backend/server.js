@@ -1,3 +1,10 @@
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT EXCEPTION:", err);
+});
+
+process.on("unhandledRejection", (err) => {
+  console.error("UNHANDLED REJECTION:", err);
+});
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -80,7 +87,12 @@ const PORT = process.env.PORT || 5000;
     await sequelize.sync({ alter: process.env.NODE_ENV === "development" });
     console.log("✅ Models synced");
 
-    await import("./services/depositDetector.js");
+    try {
+  await import("./services/depositDetector.js");
+  console.log("✅ depositDetector started");
+} catch (err) {
+  console.error("❌ depositDetector failed:", err);
+};
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 API running on port ${PORT}`);
