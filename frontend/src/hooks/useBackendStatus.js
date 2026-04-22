@@ -6,7 +6,7 @@ export function useBackendStatus() {
   useEffect(() => {
     const checkBackendStatus = async () => {
       try {
-        const response = await fetch('/api/health');
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/health`);
         if (response.ok) {
           setBackendStatus('online');
         } else {
