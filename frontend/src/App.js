@@ -74,7 +74,7 @@ function App() {
 
   const checkBackendStatus = async () => {
     try {
-      const response = await fetch('/api/health', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/health`, {
         method: 'GET',
         timeout: 5000,
       });
